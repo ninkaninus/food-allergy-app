@@ -29,6 +29,10 @@ venv/
 htmlcov/
 *.egg-info/
 
+# --- Auto-deploy (tilstand på serveren, se deploy/autodeploy.sh) --------
+.deploy-state
+.deploy-lock
+
 # --- Værktøj ------------------------------------------------------------
 .DS_Store
 .idea/

@@ -7,6 +7,7 @@ domme fra mennesker.
 Læsning er åben for alle. Kun bekræftelser kræver login.
 
 **Start her:** [`ROADMAP.md`](ROADMAP.md) for hvad du gør nu ·
+[`deploy/UNRAID.md`](deploy/UNRAID.md) for deploy og auto-deploy ·
 [`CLAUDE.md`](CLAUDE.md) hvis du (eller en kodeassistent) skal ændre i koden ·
 [`deploy/cloudflared/README.md`](deploy/cloudflared/README.md) for ingress ·
 [`NOTICE.md`](NOTICE.md) for licenskrav.

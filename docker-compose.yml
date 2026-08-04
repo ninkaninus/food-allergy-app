@@ -14,6 +14,10 @@
 services:
   allergiscan:
     build: .
+    # Auto-deploy pinner APP_IMAGE til ghcr.io/...:sha-<commit> i .env
+    # (se deploy/autodeploy.sh). Uden APP_IMAGE bygges og køres lokalt
+    # som hidtil: docker compose up -d --build
+    image: "${APP_IMAGE:-allergiscan:local}"
     container_name: allergiscan
     restart: unless-stopped
     ports:
