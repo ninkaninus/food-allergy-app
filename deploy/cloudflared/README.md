@@ -20,7 +20,7 @@ ikke installere noget.
 #    Kopiér tokenet.
 
 # 2. Læg det i .env
-echo 'TUNNEL_TOKEN=eyJhIjoi...' >> .env
+echo 'TUNNEL_TOKEN=DIT_TOKEN_HER' >> .env
 
 # 3. Peg tunnellen på containeren (i dashboardet, under Public Hostnames)
 #    Subdomain: allergi
