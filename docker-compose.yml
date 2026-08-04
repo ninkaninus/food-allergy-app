@@ -7,6 +7,7 @@
 # Valgfrie profiler:
 #   docker compose --profile postgres up -d   # Postgres i stedet for SQLite
 #   docker compose --profile proxy up -d      # Caddy + Authelia
+#   docker compose --profile tunnel up -d     # Cloudflare Tunnel (se deploy/cloudflared/)
 #
 # Alle indstillinger kommer fra .env, som er gitignoreret. Se .env.example.
 
@@ -33,6 +34,24 @@ services:
       TRUST_PROXY_AUTH: "${TRUST_PROXY_AUTH:-0}"
       TRUSTED_PROXY_HOSTS: "${TRUSTED_PROXY_HOSTS:-caddy}"
       DATABASE_URL: "${DATABASE_URL:-}"
+      # Cloudflare Access. Tomme = slået fra, appen bruger lokale brugere.
+      CF_ACCESS_TEAM_DOMAIN: "${CF_ACCESS_TEAM_DOMAIN:-}"
+      CF_ACCESS_AUD: "${CF_ACCESS_AUD:-}"
+      CF_ACCESS_ADMINS: "${CF_ACCESS_ADMINS:-}"
+
+  # Ingress uden åbne porte. Se deploy/cloudflared/README.md — tunnellen
+  # giver også HTTPS, hvilket kameraet KRÆVER: getUserMedia virker ikke
+  # over http mod en LAN-adresse, så uden den er scanneren død på telefonen.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: allergiscan-tunnel
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: "${TUNNEL_TOKEN:?sæt TUNNEL_TOKEN i .env}"
+      TZ: "${TZ:-Europe/Copenhagen}"
+    depends_on: [allergiscan]
 
   postgres:
     image: postgres:17-alpine

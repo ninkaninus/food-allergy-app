@@ -1,9 +1,15 @@
 # AllergiScan
 
 Selvhostet stregkode-tjek af fødevarer mod en familiespecifik allergiliste.
-Kører på unRAID. Data fra Open Food Facts, domme fra mennesker.
+Kører på unRAID, nås via Cloudflare Tunnel. Data fra Open Food Facts,
+domme fra mennesker.
 
 Læsning er åben for alle. Kun bekræftelser kræver login.
+
+**Start her:** [`ROADMAP.md`](ROADMAP.md) for hvad du gør nu ·
+[`CLAUDE.md`](CLAUDE.md) hvis du (eller en kodeassistent) skal ændre i koden ·
+[`deploy/cloudflared/README.md`](deploy/cloudflared/README.md) for ingress ·
+[`NOTICE.md`](NOTICE.md) for licenskrav.
 
 ---
 
@@ -61,21 +67,19 @@ forhandling.
 De to sidste kan køre samtidig. Start med lokale brugere; læg Authelia på
 hvis I bliver flere end en håndfuld.
 
-### Hvordan når den butikken?
+### Ingress: Cloudflare Tunnel
 
-Det er det egentlige spørgsmål, når det skal virke på to mobiler på farten.
-Rangeret:
+Tunnellen gør mere end at spare en portforwarding. **Kameraet kræver HTTPS** —
+`getUserMedia` virker ikke i et usikkert context, så på `http://192.168.1.x:8420`
+nægter både Safari og Chrome adgang til kameraet, og stregkodescanneren er død.
+Tunnellen giver et rigtigt certifikat, og dermed virker kernefunktionen.
 
-1. **Cloudflare Tunnel** (anbefalet). Ingen åbne porte på unRAID, ingen
-   portforwarding, virker på enhver telefon uden app. Læsesiden må gerne være
-   offentlig — der er ingen personoplysninger i "indeholder denne yoghurt
-   mælk". Kun skrivestierne bag Authelia.
-2. **Tailscale.** Sikrest, men dagplejen skal installere en app og logge ind.
-   Friktion for en, der bare skal scanne en pakke kiks.
-3. **Portforwarding + Caddy + Authelia.** Virker, men åbner dit hjemmenet.
-   Vælg kun hvis du allerede har den opsætning kørende.
+Fuld opsætning i [`deploy/cloudflared/README.md`](deploy/cloudflared/README.md).
 
-Rent LAN er ikke nok — I står i Netto.
+**Vigtigt:** sæt aldrig `TRUST_PROXY_AUTH=1` sammen med tunnellen uden en
+Caddy imellem. Trafikken går direkte til containeren, og ingen strimler
+`Remote-*` undervejs. Brug i stedet Cloudflare Access — `app/cfaccess.py`
+validerer JWT-signaturen, og den kan ikke forfalskes.
 
 ---
 
@@ -220,7 +224,7 @@ Lokalt:
 pip install -r requirements.txt
 DATA_DIR=./data RULES_PATH=./data/allergens.yaml COOKIE_SECURE=0 \
   uvicorn app.main:app --reload
-python -m pytest tests/ -q     # 36 tests
+python -m pytest tests/ -q     # 52 tests
 ```
 
 ---
@@ -282,8 +286,8 @@ at share-alike smitter af på jeres verifikationsarbejde.
 
 ## Kendte begrænsninger
 
-- **Ingen rate limiting.** Læsesiden er åben; læg Cloudflare eller
-  `slowapi` foran hvis den skal være offentligt tilgængelig.
+- **Ingen rate limiting.** Læsesiden er åben; brug Cloudflare WAF-regler eller
+  `slowapi` hvis den skal være offentligt tilgængelig.
 - **Ingen billedlagring.** OCR-billeder kastes væk efter læsning. Vil I have
   et arkiv af deklarationer, skal der en volume og en oprydningspolitik til.
 - **Ingen Excel-import.** `confirm` er idempotent, så et importscript mod jeres

@@ -1,0 +1,152 @@
+# AllergiScan — kontekst til en kodesession
+
+Læs denne fil før du ændrer noget. Den forklarer *hvorfor* koden ser ud, som
+den gør. Flere ting, der ligner overflødig kompleksitet, er der bevidst, og et
+par af dem er der, fordi et barn ellers kunne blive syg.
+
+## Hvad appen er til
+
+Et barn tåler ikke mælkeprotein, mælk, æg, jordbær eller banan. Forældrene
+står i Netto med en pakke i hånden og skal vide, om den kan spises. De scanner
+stregkoden på telefonen og får ét af fire svar.
+
+Brugerne er to voksne: en forælder og en dagplejer. Appen kører på en unRAID-
+server derhjemme og nås via Cloudflare Tunnel.
+
+## Invarianten, der ikke må brydes
+
+**Motoren kan gøre en vare rød eller gul. Aldrig grøn.**
+
+`State.FREE` sættes kun ét sted: `POST /api/products/{ean}/confirm`, som
+kræver en indlogget bruger. Fandt motoren ingenting, er svaret `UNKNOWN` —
+ikke "sikker". Fravær af bevis er ikke bevis for fravær.
+
+Fire tests håndhæver det:
+- `test_engine_never_returns_free`
+- `test_ocr_mode_still_never_returns_free`
+- `test_only_human_confirmation_produces_green`
+- `test_unknown_barcode_returns_no_verdicts`
+
+Hvis du står med en ændring, der ville få dem til at fejle, er ændringen
+forkert — ikke testene.
+
+## Fire ting, der ser mærkelige ud, men ikke er det
+
+### 1. Maskering med `░` i stedet for at fjerne tekst
+
+`matcher.py` erstatter undtagelser med blokke af *samme længde* i stedet for
+at klippe dem ud. Det er for at bevare tegn-offsets, så frontend kan
+highlighte præcis det ord, der udløste advarslen. Klipper du i stedet,
+peger highlightet på det forkerte sted i lange deklarationer.
+
+### 2. Ordgrænse før mønsteret, men ikke efter
+
+`(?<![a-zæøå])mælk` rammer `mælkepulver` men ikke `kokosmælk`. Dansk
+sammensætter ord, og allergenet betyder kun noget, når det står forrest.
+Sammensætninger med allergenet bagest (`kærnemælk`, `skummetmælk`) står
+eksplicit i `contains`. Fjerner du den lookbehind, bliver kakaosmør til
+mejeri, og folk holder op med at stole på appen.
+
+### 3. To pas med forskellig maskering
+
+```
+exclude + maybe maskeres  ->  contains-pass   (rød)
+exclude maskeres          ->  maybe-pass      (gul)
+                          ->  fuzzy-pass      (kun ved OCR)
+```
+
+Uden det første ville `jordbæraroma` blive rød på præfikset `jordbær`.
+`_mask()` har desuden en `protect`-parameter, så en kort undtagelse
+(`mælkesyre`) ikke skygger for et længere maybe-mønster (`mælkesyrekultur`).
+
+### 4. Fuzzy-matchning kun på OCR-tekst
+
+Målt: Tesseract læser en dansk deklaration med 89,8 % konfidens og laver
+`skummetmælkspulver` om til `skummetmaalkspulver`, `jordbær` til `jordbzer`.
+Eksakt matchning missede begge — altså netop de allergener, der stod på
+pakken. Derfor foldes æ/ø/å til ASCII og tillades 1-2 redigeringers afvigelse,
+men **kun** når `ocr=True`. På ren tekst ville det give falske positiver uden
+gevinst.
+
+## To lag, der ikke må blandes sammen
+
+| | `ingredients.py` | `matcher.py` |
+|---|---|---|
+| Dækning | alle ingredienser | fem allergener |
+| Præcision | lav, substring | høj, maskeret |
+| Fejler mod | overekskludering | overadvarsel |
+| Bruges til | finde og filtrere | afgøre sikkerhed |
+
+Filtret siger "uden mælk" og smider også kokosmælk-varen ud. Det er
+irriterende, når man browser, og fuldstændig acceptabelt. Regelsættet ville
+aldrig gøre det. **Lad aldrig filtreringslaget producere en dom** — det er den
+mest sandsynlige måde at ødelægge appen på, fordi det ser ud som en oplagt
+forenkling.
+
+## Sikkerhed: hvorfor Cloudflare Access valideres kryptografisk
+
+Med Tunnel går trafikken direkte til containeren; der er ingen proxy til at
+strimle headere. Havde vi stolet på `Cf-Access-Authenticated-User-Email`,
+kunne enhver med netværksadgang til containeren sætte den selv.
+
+`cfaccess.py` validerer derfor JWT-signaturen i `Cf-Access-Jwt-Assertion` mod
+Cloudflares offentlige nøgler og tjekker `aud`. Det kan ikke forfalskes.
+
+`TRUST_PROXY_AUTH=1` (header-baseret) er kun sikkert bag en proxy, der
+strimler `Remote-*` — se `deploy/Caddyfile.example`. Default er 0.
+Der er tests for at begge headere ignoreres, når de ikke er beviste.
+
+## Arkitektur
+
+```
+app/
+  main.py         FastAPI-ruter
+  matcher.py      allergen-regelmotoren    <- den sikkerhedskritiske
+  ingredients.py  bredt ingrediensindeks   <- den upræcise
+  auth.py         sessioner, argon2, HIBP, proxy/Access-identitet
+  cfaccess.py     Cloudflare Access JWT-validering
+  ocr.py          Tesseract + forbehandling
+  off.py          Open Food Facts-klient
+  models.py       SQLAlchemy
+  db.py           SQLite eller Postgres
+  cli.py          adduser, reindex
+  static/         PWA (én HTML-fil, ingen build)
+data/allergens.yaml   reglerne — mountes read-only, redigeres uden rebuild
+```
+
+Frontend er bevidst én fil uden byggetrin. Der er ingen node_modules, ingen
+bundler, intet at holde opdateret. `zxing-wasm` er vendoret i
+`static/vendor/zxing/`, fordi Safari mangler `BarcodeDetector`.
+
+## Datamodel: to detaljer der bærer meget
+
+**Domme hænger på parret (produkt, allergen)**, ikke på produktet. Tilføjes
+soja i morgen, står de eksisterende godkendelser for mælk og æg uændret.
+
+**Hver dom gemmer `ingredients_hash`.** Ændrer producenten opskriften på samme
+EAN, matcher hashen ikke, dommen markeres `stale`, og varen ryger i køen.
+Det er den eneste automatiske beskyttelse mod stille opskriftsændringer.
+
+**`product` er ODbL-afledt, `verdict` er brugerens eget arbejde.** De ligger i
+separate tabeller, så share-alike ikke smitter af på verifikationsarbejdet.
+Bland dem ikke sammen. Se `NOTICE.md`.
+
+## Kør og test
+
+```bash
+pip install -r requirements.txt
+DATA_DIR=./data-runtime RULES_PATH=./data/allergens.yaml COOKIE_SECURE=0 \
+  uvicorn app.main:app --reload
+
+pytest tests/ -q          # 52 tests
+python -m app.cli adduser dig@example.dk "Navn"
+```
+
+Tesseract med dansk sprogmodel skal være installeret, ellers fejler
+OCR-stien: `apt install tesseract-ocr tesseract-ocr-dan`.
+
+## Sprog
+
+Kode, kommentarer, commits og UI er på dansk. Ingredienslisterne er danske,
+og reglerne handler om dansk orddannelse — engelsk ville gøre koden sværere
+at læse, ikke lettere. Behold det.

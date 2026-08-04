@@ -34,6 +34,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from . import cfaccess
 from .db import default_household, get_session
 from .models import SessionToken, User, now
 
@@ -134,6 +135,39 @@ def revoke_session(db: Session, raw: str | None) -> None:
 # --- afhængigheder ---------------------------------------------------------
 
 
+def _provision(db: Session, email: str, name: str, source: str, admin: bool) -> User | None:
+    """Opretter brugeren ved første besøg. Identiteten er allerede bevist."""
+    user = db.scalar(select(User).where(User.email == email))
+    if user is None:
+        hh = default_household(db)
+        user = User(
+            household_id=hh.id,
+            email=email,
+            name=name,
+            password_hash=None,
+            role="admin" if admin else "curator",
+            source=source,
+        )
+        db.add(user)
+        db.commit()
+    return user if user.active else None
+
+
+def _cf_access_user(db: Session, request: Request) -> User | None:
+    """
+    Cloudflare Access. Kræver et gyldigt, signeret JWT — ikke bare en header.
+    Se app/cfaccess.py for hvorfor den skelnen er hele pointen med Tunnel.
+    """
+    if not cfaccess.enabled():
+        return None
+    ident = cfaccess.identity(request.headers)
+    if ident is None:
+        return None
+    email, name = ident
+    admins = {a.strip().lower() for a in os.getenv("CF_ACCESS_ADMINS", "").split(",") if a.strip()}
+    return _provision(db, email, name, "cf_access", admin=email in admins)
+
+
 def _proxy_user(db: Session, request: Request) -> User | None:
     if not TRUST_PROXY_AUTH:
         return None
@@ -143,30 +177,25 @@ def _proxy_user(db: Session, request: Request) -> User | None:
     email = request.headers.get("remote-email") or request.headers.get("remote-user")
     if not email:
         return None
-    user = db.scalar(select(User).where(User.email == email.lower()))
-    if user is None:
-        hh = default_household(db)
-        groups = (request.headers.get("remote-groups") or "").lower()
-        user = User(
-            household_id=hh.id,
-            email=email.lower(),
-            name=request.headers.get("remote-name") or email.split("@")[0],
-            password_hash=None,
-            role="admin" if "admin" in groups else "curator",
-            source="proxy",
-        )
-        db.add(user)
-        db.commit()
-    return user if user.active else None
+    groups = (request.headers.get("remote-groups") or "").lower()
+    return _provision(
+        db,
+        email.lower(),
+        request.headers.get("remote-name") or email.split("@")[0],
+        "proxy",
+        admin="admin" in groups,
+    )
 
 
 def current_user(
     request: Request, db: Session = Depends(get_session)
 ) -> User | None:
     """Returnerer brugeren hvis der er en. Rejser ikke fejl — læsning er åben."""
-    proxied = _proxy_user(db, request)
-    if proxied:
-        return proxied
+    # Rækkefølge efter styrke af bevis: kryptografisk signeret token først,
+    # derefter betroet-proxy-header, derefter vores egen session-cookie.
+    for candidate in (_cf_access_user(db, request), _proxy_user(db, request)):
+        if candidate:
+            return candidate
 
     raw = request.cookies.get(COOKIE)
     if not raw:
