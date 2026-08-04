@@ -1,0 +1,7 @@
+# docker compose exec authelia authelia crypto hash generate argon2 --password '...'
+users:
+  william:
+    displayname: 'William'
+    password: '$argon2id$v=19$m=65536,t=3,p=4$SKIFT$MIG'
+    email: dig@example.dk
+    groups: [curators, admins]

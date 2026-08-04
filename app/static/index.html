@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AllergiScan</title>
+<meta name="theme-color" content="#12181C">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..900&family=Public+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E4E9EC; --surface:#fff; --ink:#12181C; --muted:#5D6B73; --rule:#C6D0D6;
+  --unsafe:#C2251B; --caution:#B26A00; --unverified:#42545F; --safe:#0E6B4E;
+  --pad:18px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--paper);color:var(--ink);
+  font:16px/1.5 "Public Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased;
+  padding-bottom:calc(76px + env(safe-area-inset-bottom));
+}
+.wrap{max-width:640px;margin:0 auto;padding:0 var(--pad)}
+[hidden]{display:none !important}
+
+.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:20px 0 13px;border-bottom:2px solid var(--ink)}
+.mark{font-family:Archivo,sans-serif;font-variation-settings:"wdth" 118,"wght" 800;
+  font-size:19px;letter-spacing:-.02em;text-transform:uppercase}
+.who{font-size:13px;color:var(--muted);text-align:right}
+.who b{color:var(--ink);font-weight:700}
+.link{background:none;border:0;padding:0;color:var(--ink);text-decoration:underline;
+  font-size:13px;cursor:pointer}
+
+button{font-family:inherit;font-size:15px;cursor:pointer;border-radius:2px}
+.btn{padding:13px 17px;border:1.5px solid var(--ink);background:var(--ink);
+  color:var(--paper);font-weight:700}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn:focus-visible,input:focus-visible{outline:3px solid var(--caution);outline-offset:2px}
+input,textarea{font-family:inherit;font-size:16px;padding:12px;border:1.5px solid var(--rule);
+  border-radius:2px;background:var(--surface);color:var(--ink);width:100%}
+textarea{min-height:150px;line-height:1.6;resize:vertical}
+
+.entry{display:flex;gap:8px;margin:16px 0}
+.entry input{flex:1;min-width:0;font-family:"JetBrains Mono",monospace;letter-spacing:.06em}
+#cam{width:100%;border-radius:2px;background:#000;aspect-ratio:4/3;object-fit:cover;margin-bottom:10px}
+
+.card{background:var(--surface);border:2px solid var(--ink);margin:18px 0}
+.slab{padding:20px var(--pad) 18px;color:#fff;background:var(--unverified)}
+.slab[data-r="unsafe"]{background:var(--unsafe)}
+.slab[data-r="caution"]{background:var(--caution)}
+.slab[data-r="safe"]{background:var(--safe)}
+.eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;opacity:.82;
+  font-weight:700;margin:0 0 2px}
+.shout{font-family:Archivo,sans-serif;font-variation-settings:"wdth" 122,"wght" 850;
+  font-size:clamp(38px,13vw,68px);line-height:.9;letter-spacing:-.035em;
+  text-transform:uppercase;margin:0}
+.slab p{margin:9px 0 0;font-size:14.5px;line-height:1.45;max-width:44ch}
+@media (prefers-reduced-motion:no-preference){
+  .slab{animation:wash .34s cubic-bezier(.2,.7,.3,1)}
+  @keyframes wash{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+}
+
+.prod{display:flex;gap:14px;padding:15px var(--pad);border-bottom:1px solid var(--rule)}
+.prod img{width:60px;height:60px;object-fit:contain;background:#f2f5f6;flex:none}
+.prod h2{margin:0;font-size:17px;line-height:1.25}
+.prod .meta{margin:3px 0 0;font-size:13px;color:var(--muted)}
+.ean{font-family:"JetBrains Mono",monospace;font-size:12px;letter-spacing:.08em}
+
+.rows{list-style:none;margin:0;padding:0}
+.rows li{display:grid;grid-template-columns:14px 1fr auto;gap:12px;align-items:start;
+  padding:12px var(--pad);border-bottom:1px solid var(--rule)}
+.dot{width:14px;height:14px;border-radius:50%;margin-top:4px;background:var(--unverified)}
+.dot.contains{background:var(--unsafe)}
+.dot.trace_risk{background:var(--caution)}
+.dot.free{background:var(--safe)}
+.rows .name{font-weight:700;font-size:15px}
+.rows .basis{font-size:12.5px;color:var(--muted);margin-top:2px}
+.rows code{font-family:"JetBrains Mono",monospace;font-size:11.5px}
+.tag{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;
+  padding:3px 7px;border:1px solid var(--rule);color:var(--muted);white-space:nowrap}
+
+.decl{padding:15px var(--pad) 19px;border-bottom:1px solid var(--rule)}
+.decl h3,.sec h3{font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--muted);margin:0 0 9px;font-weight:700}
+.decl .body{font-family:"JetBrains Mono",monospace;font-size:13.5px;line-height:1.85;
+  word-break:break-word}
+mark{background:none;padding:0 1px}
+mark.contains{color:var(--unsafe);font-weight:700;text-decoration:underline;
+  text-decoration-thickness:2px;box-shadow:inset 0 -.42em 0 rgba(194,37,27,.16)}
+mark.trace_risk{color:var(--caution);font-weight:700;text-decoration:underline;
+  text-decoration-style:dotted;text-decoration-thickness:2px;
+  box-shadow:inset 0 -.42em 0 rgba(178,106,0,.16)}
+.none{color:var(--muted);font-style:italic}
+.acts{display:flex;gap:8px;padding:14px var(--pad);flex-wrap:wrap}
+.acts .btn{flex:1 1 auto}
+
+.sec{background:var(--surface);border:1.5px solid var(--rule);padding:16px var(--pad);margin:16px 0}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}
+.chip{display:inline-flex;align-items:center;gap:7px;border:1.5px solid var(--rule);
+  padding:8px 12px;font-size:14px;background:var(--surface);cursor:pointer}
+.chip[aria-pressed="true"]{border-color:var(--ink);background:var(--ink);color:var(--paper);font-weight:700}
+.chip small{font-size:10px;letter-spacing:.08em;text-transform:uppercase;opacity:.7}
+.hint{font-size:13px;color:var(--muted);margin:10px 0 0;line-height:1.45}
+.warn{border-left:3px solid var(--caution);padding:12px 14px;background:var(--surface);
+  font-size:13.5px;line-height:1.5;color:var(--muted);margin:14px 0}
+.warn b{color:var(--ink)}
+.err{color:var(--unsafe);font-size:13.5px;margin:8px 0 0;font-weight:700}
+
+.hits{list-style:none;margin:12px 0 0;padding:0}
+.hits li{display:flex;justify-content:space-between;gap:12px;padding:10px 0;
+  border-bottom:1px solid var(--rule);font-size:14px}
+.hits .sub{color:var(--muted);font-size:12.5px}
+
+nav.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--surface);
+  border-top:2px solid var(--ink);padding-bottom:env(safe-area-inset-bottom);z-index:20}
+nav.tabs button{flex:1;padding:15px 6px;border:0;background:none;font-size:13px;
+  font-weight:700;color:var(--muted);border-radius:0}
+nav.tabs button[aria-current="true"]{color:var(--ink);box-shadow:inset 0 3px 0 var(--ink)}
+
+footer{padding:22px 0 30px;font-size:12.5px;color:var(--muted);line-height:1.55}
+footer a{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="bar">
+    <div class="mark">AllergiScan</div>
+    <div class="who">
+      <div>Tjekker for <b id="who">—</b></div>
+      <button class="link" id="authBtn">Log ind</button>
+    </div>
+  </header>
+
+  <!-- ==================== SCAN ==================== -->
+  <section id="view-scan">
+    <video id="cam" playsinline muted hidden></video>
+    <div class="entry">
+      <input id="ean" inputmode="numeric" autocomplete="off" placeholder="5701234567890" aria-label="Stregkode">
+      <button class="btn ghost" id="camBtn">Scan</button>
+      <button class="btn" id="go">Slå op</button>
+    </div>
+    <p class="hint" id="scanHint"></p>
+
+    <section class="card" id="verdict" hidden>
+      <div class="slab" id="slab">
+        <p class="eyebrow" id="eyebrow">Resultat</p>
+        <h1 class="shout" id="shout">—</h1>
+        <p id="explain"></p>
+      </div>
+      <div class="prod" id="prod"></div>
+      <ul class="rows" id="rows"></ul>
+      <div class="decl">
+        <h3>Deklaration, som motoren læste den</h3>
+        <div class="body" id="decl"></div>
+      </div>
+      <div class="acts">
+        <button class="btn ghost" id="ocrBtn">Fotografér deklaration</button>
+        <button class="btn" id="confirmBtn">Bekræft mod emballagen</button>
+      </div>
+    </section>
+
+    <input type="file" id="ocrFile" accept="image/*" capture="environment" hidden>
+
+    <section class="sec" id="confirmPanel" hidden>
+      <h3>Bekræft mod emballagen</h3>
+      <p class="hint" id="ocrStatus"></p>
+      <textarea id="declEdit" placeholder="Ingredienser: …" aria-label="Ingrediensliste"></textarea>
+      <ul class="chips" id="confirmChips" style="margin:14px 0"></ul>
+      <p class="hint">Tryk for at skifte mellem <b>fri</b> og <b>indeholder</b>. Grøn kræver, at du har læst den fysiske pakke.</p>
+      <div class="acts" style="padding:12px 0 0">
+        <button class="btn ghost" id="cancelConfirm">Fortryd</button>
+        <button class="btn" id="saveConfirm">Gem dom</button>
+      </div>
+      <p class="err" id="confirmErr" hidden></p>
+    </section>
+
+    <p class="warn">
+      <b>Grøn kræver et menneske.</b> Appen kan kun gøre en vare rød eller gul af sig selv.
+      Producenter ændrer opskrifter uden at skifte stregkode — læs altid etiketten.
+    </p>
+  </section>
+
+  <!-- ==================== FILTER ==================== -->
+  <section id="view-filter" hidden>
+    <div class="sec">
+      <h3>Find varer uden en ingrediens</h3>
+      <input id="filterQ" placeholder="jordbær, valle, lecithin" aria-label="Ingredienser der skal undgås">
+      <div class="acts" style="padding:12px 0 0">
+        <button class="btn" id="filterGo">Søg</button>
+      </div>
+      <p class="hint">Søger i alle ingredienser fra de varer, I har scannet — ikke kun de fire allergener.</p>
+    </div>
+    <div id="filterWarn"></div>
+    <ul class="hits" id="filterHits"></ul>
+
+    <div class="sec">
+      <h3>Hvad hedder det i danske deklarationer?</h3>
+      <input id="sugQ" placeholder="jordbær" aria-label="Slå stavemåder op">
+      <div class="acts" style="padding:12px 0 0">
+        <button class="btn ghost" id="sugGo">Slå op</button>
+      </div>
+      <p class="hint">Graver stavemåderne ud af jeres eget korpus, så synonymlisten i
+        <code>allergens.yaml</code> skrives ud fra virkeligheden.</p>
+      <ul class="hits" id="sugHits"></ul>
+    </div>
+  </section>
+
+  <!-- ==================== INDSTILLINGER ==================== -->
+  <section id="view-prefs" hidden>
+    <div class="sec">
+      <h3>Hvem tjekker vi for?</h3>
+      <input id="prefName" placeholder="Navn" aria-label="Navn">
+      <p class="hint">Gemmes kun i denne browser. Ingen konto, intet sendt nogen steder.</p>
+    </div>
+    <div class="sec">
+      <h3>Hvad kan hun ikke tåle?</h3>
+      <ul class="chips" id="prefChips"></ul>
+      <p class="hint" id="prefHint"></p>
+    </div>
+
+    <section class="sec" id="loginPanel">
+      <h3>Log ind for at bekræfte varer</h3>
+      <div id="loggedOut">
+        <input id="loginEmail" type="email" placeholder="mail" autocomplete="username" style="margin-bottom:8px">
+        <input id="loginPw" type="password" placeholder="adgangskode" autocomplete="current-password">
+        <div class="acts" style="padding:12px 0 0">
+          <button class="btn" id="loginGo">Log ind</button>
+        </div>
+        <p class="err" id="loginErr" hidden></p>
+        <p class="hint">Kun nødvendigt for at gemme domme. Scanning og filtrering virker uden.</p>
+      </div>
+      <div id="loggedIn" hidden>
+        <p class="hint" id="loginWho"></p>
+        <div class="acts" style="padding:8px 0 0">
+          <button class="btn ghost" id="logoutGo">Log ud</button>
+        </div>
+      </div>
+    </section>
+  </section>
+
+  <footer>
+    <p>Produktdata fra <a href="https://openfoodfacts.org">Open Food Facts</a>, ODbL 1.0.
+    Billeder CC BY-SA 3.0. Jeres egne domme er jeres eget arbejde.
+    <span id="attrib"></span></p>
+    <p>Hjælpeværktøj, ikke en medicinsk anordning. Læs altid etiketten.</p>
+  </footer>
+</div>
+
+<nav class="tabs">
+  <button data-view="scan" aria-current="true">Scan</button>
+  <button data-view="filter">Filtrér</button>
+  <button data-view="prefs">Indstillinger</button>
+</nav>
+
+<script type="module">
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- lokale valg. Ingen konto, ingen server. ---------- */
+const KEY = 'allergiscan.prefs.v1';
+const prefs = Object.assign(
+  {name:'Barn', allergens:['maelkeprotein','aeg','jordbaer','banan']},
+  JSON.parse(localStorage.getItem(KEY) || '{}')
+);
+const savePrefs = () => { localStorage.setItem(KEY, JSON.stringify(prefs)); paintWho(); };
+const paintWho = () => { $('#who').textContent = prefs.name || '—'; };
+
+let ALLERGENS = [], USER = null, LAST = null;
+
+const COPY = {
+  unsafe:    ['Fundet','Ikke sikker','Mindst ét af de allergener, I holder øje med, står i deklarationen.'],
+  caution:   ['Usikker','Skal tjekkes','Sporadvarsler eller ingredienser, der kan skjule et allergen.'],
+  unverified:['Ikke bekræftet','Ved det ikke','Motoren fandt ingenting — men det er ikke det samme som frit.'],
+  safe:      ['Bekræftet','Sikker','Alle valgte allergener er manuelt afkrydset mod emballagen.'],
+  unknown:   ['Ukendt vare','Ingen data','Stregkoden findes ikke i Open Food Facts. Fotografér deklarationen.']
+};
+const BASIS = {manual:'bekræftet af et menneske', off_allergen_tag:'allergen-tag fra Open Food Facts',
+  off_trace_tag:'sportag fra Open Food Facts', text_match:'fundet i ingredienslisten',
+  text_maybe:'usikker ingrediens i listen', no_text:'ingen ingrediensliste',
+  not_found_in_text:'ikke fundet i teksten'};
+
+/* ---------- visninger ---------- */
+document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav.tabs button').forEach(x =>
+    x.setAttribute('aria-current', String(x === b)));
+  for(const v of ['scan','filter','prefs']) $('#view-'+v).hidden = (v !== b.dataset.view);
+  window.scrollTo(0,0);
+});
+
+/* ---------- opslag ---------- */
+async function lookup(code){
+  const ean = String(code ?? $('#ean').value).replace(/\D/g,'');
+  if(ean.length < 8){ $('#ean').focus(); return; }
+  $('#ean').value = ean;
+  const q = new URLSearchParams({allergens: prefs.allergens.join(',')});
+  const r = await fetch(`/api/scan/${ean}?${q}`);
+  if(!r.ok){ $('#scanHint').textContent = 'Opslag mislykkedes ('+r.status+').'; return; }
+  LAST = await r.json();
+  render(LAST);
+}
+
+function highlight(text, rows){
+  if(!text) return '<span class="none">Ingen ingrediensliste registreret.</span>';
+  const spans = [];
+  for(const a of rows) for(const h of (a.evidence||[]))
+    if(Number.isInteger(h.start)) spans.push({...h, state:a.state, name:a.name});
+  spans.sort((x,y) => x.start - y.start);
+  let out = '', cur = 0;
+  for(const s of spans){
+    if(s.start < cur) continue;
+    out += esc(text.slice(cur, s.start))
+        + `<mark class="${s.state}" title="${esc(s.name)} — regel: ${esc(s.pattern)}">`
+        + esc(text.slice(s.start, s.end)) + '</mark>';
+    cur = s.end;
+  }
+  return out + esc(text.slice(cur));
+}
+
+function render(d){
+  $('#verdict').hidden = false;
+  $('#confirmPanel').hidden = true;
+  const key = d.found ? d.result : 'unknown';
+  const [eb, sh, ex] = COPY[key] || COPY.unverified;
+  $('#slab').dataset.r = key;
+  $('#eyebrow').textContent = eb;
+  $('#shout').textContent = sh;
+  $('#explain').textContent = ex;
+
+  const p = d.product || {};
+  $('#prod').innerHTML = (p.image_url ? `<img src="${esc(p.image_url)}" alt="" loading="lazy">` : '')
+    + `<div><h2>${esc(p.name || 'Ukendt vare')}</h2>
+       <p class="meta">${esc(p.brand || '—')}${p.quantity ? ' · '+esc(p.quantity) : ''}</p>
+       <p class="meta ean">${esc(d.ean)}</p></div>`;
+
+  $('#rows').innerHTML = (d.allergens||[]).map(a => `
+    <li><span class="dot ${a.state}"></span>
+      <div><div class="name">${esc(a.name)}</div>
+      <div class="basis">${BASIS[a.basis] || a.basis}
+        ${a.evidence?.length ? ' · <code>'+esc(a.evidence.map(e=>e.pattern).join(', '))+'</code>' : ''}
+        ${a.stale ? ' · <b>opskrift ændret, bekræft igen</b>' : ''}</div></div>
+      <span class="tag">${a.eu14 ? 'EU-14' : 'kun fritekst'}</span></li>`).join('');
+
+  $('#decl').innerHTML = highlight(p.ingredients_parsed || '', d.allergens || []);
+  $('#verdict').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+$('#go').onclick = () => lookup();
+$('#ean').addEventListener('keydown', e => { if(e.key === 'Enter') lookup(); });
+
+/* ---------- stregkodescanning ----------
+   BarcodeDetector findes i Chrome på Android. Safari og iOS har den ikke,
+   så vi falder tilbage til zxing-wasm, som ligger lokalt i /static/vendor/.
+   Ingen CDN: virker i en kælderbutik uden dækning, og licensen er MIT. */
+let stream = null, zxing = null;
+
+async function loadZXing(){
+  if(zxing) return zxing;
+  const m = await import('/static/vendor/zxing/zxing-reader.js');
+  await m.prepareZXingModule({
+    overrides:{ locateFile:(p,pre) => p.endsWith('.wasm')
+      ? '/static/vendor/zxing/zxing_reader.wasm' : pre + p },
+    fireImmediately:true
+  });
+  zxing = m;
+  return m;
+}
+
+function stopCam(){
+  stream?.getTracks().forEach(t => t.stop());
+  stream = null;
+  $('#cam').hidden = true;
+}
+
+$('#camBtn').onclick = async () => {
+  const cam = $('#cam');
+  if(stream){ stopCam(); return; }
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+  }catch{ $('#scanHint').textContent = 'Kameraet fik ikke adgang. Tast koden ind.'; return; }
+  cam.srcObject = stream; cam.hidden = false; await cam.play();
+
+  const native = 'BarcodeDetector' in window;
+  const det = native ? new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e']}) : null;
+  const mod = native ? null : await loadZXing().catch(() => null);
+  if(!native && !mod){
+    stopCam();
+    $('#scanHint').textContent = 'Kunne ikke starte scanneren. Tast koden ind.';
+    return;
+  }
+  $('#scanHint').textContent = native ? 'Scanner…' : 'Scanner (zxing)…';
+
+  const cv = document.createElement('canvas');
+  const cx = cv.getContext('2d', {willReadFrequently:true});
+
+  const tick = async () => {
+    if(!stream) return;
+    try{
+      let code = null;
+      if(native){
+        const f = await det.detect(cam);
+        if(f.length) code = f[0].rawValue;
+      }else if(cam.videoWidth){
+        cv.width = cam.videoWidth; cv.height = cam.videoHeight;
+        cx.drawImage(cam, 0, 0);
+        const res = await mod.readBarcodesFromImageData(
+          cx.getImageData(0, 0, cv.width, cv.height),
+          {formats:['EAN-13','EAN-8','UPC-A','UPC-E'], tryHarder:true});
+        if(res.length) code = res[0].text;
+      }
+      if(code){
+        stopCam();
+        navigator.vibrate?.(60);
+        $('#scanHint').textContent = '';
+        return lookup(code);
+      }
+    }catch{ /* enkelte frames fejler, det er normalt */ }
+    setTimeout(() => requestAnimationFrame(tick), native ? 0 : 120);
+  };
+  tick();
+};
+
+/* ---------- OCR ---------- */
+$('#ocrBtn').onclick = () => {
+  if(!USER){ $('#scanHint').textContent = 'Log ind under Indstillinger for at bruge OCR.'; return; }
+  $('#ocrFile').click();
+};
+
+$('#ocrFile').onchange = async e => {
+  const f = e.target.files?.[0];
+  if(!f) return;
+  openConfirm();
+  $('#ocrStatus').textContent = 'Læser billedet…';
+  const fd = new FormData(); fd.append('image', f);
+  const r = await fetch('/api/ocr', {method:'POST', body:fd});
+  e.target.value = '';
+  if(!r.ok){ $('#ocrStatus').textContent = 'OCR fejlede ('+r.status+').'; return; }
+  const d = await r.json();
+  if(!d.ok){ $('#ocrStatus').textContent = d.error; return; }
+  $('#declEdit').value = d.text;
+
+  // Forhåndstjek fra matcheren med OCR-tolerance. Fuzzy-træf er gæt —
+  // de siger "ligner", ikke "er", og skal efterses på den fysiske pakke.
+  const flagged = (d.allergens || []).filter(a => a.state === 'contains');
+  const approx = flagged.filter(a => a.approximate);
+  $('#ocrStatus').innerHTML = `Sikkerhed ${d.confidence}%. ${esc(d.hint)}`
+    + (flagged.length
+        ? `<br><b>Efterse på pakken:</b> ` + flagged.map(a => {
+            const w = a.evidence?.[0];
+            return esc(a.name) + (a.approximate && w
+              ? ` (OCR læste «${esc(w.excerpt.trim())}»)` : '');
+          }).join(', ')
+        : '<br>Motoren fandt ingen af dine allergener — men OCR kan have tabt dem. Læs teksten igennem.')
+    + (approx.length ? '<br>Ordene i citationstegn blev læst upræcist. Tjek dem først.' : '');
+
+  // Forudfyld knapperne efter forhåndstjekket, ikke efter den gamle dom.
+  const st = {};
+  for(const a of d.allergens || []) if(prefs.allergens.includes(a.slug))
+    st[a.slug] = a.state === 'contains' ? 'contains' : 'free';
+  if(Object.keys(st).length){
+    $('#confirmChips').dataset.state = JSON.stringify(st);
+    paintConfirmChips();
+  }
+};
+
+/* ---------- bekræftelse ---------- */
+function openConfirm(){
+  if(!USER){ $('#scanHint').textContent = 'Log ind under Indstillinger for at bekræfte varer.'; return; }
+  $('#confirmPanel').hidden = false;
+  $('#confirmErr').hidden = true;
+  $('#declEdit').value = LAST?.product?.ingredients_text || '';
+  $('#ocrStatus').textContent = '';
+  const state = {};
+  for(const a of LAST?.allergens || []) state[a.slug] = a.state === 'contains' ? 'contains' : 'free';
+  $('#confirmChips').dataset.state = JSON.stringify(state);
+  paintConfirmChips();
+  $('#confirmPanel').scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+function paintConfirmChips(){
+  const st = JSON.parse($('#confirmChips').dataset.state || '{}');
+  $('#confirmChips').innerHTML = Object.entries(st).map(([slug, v]) => {
+    const a = ALLERGENS.find(x => x.slug === slug);
+    return `<li><button class="chip" data-slug="${slug}" aria-pressed="${v === 'contains'}">
+      ${esc(a?.name || slug)} <small>${v === 'contains' ? 'indeholder' : 'fri'}</small></button></li>`;
+  }).join('');
+  $('#confirmChips').querySelectorAll('.chip').forEach(b => b.onclick = () => {
+    const st2 = JSON.parse($('#confirmChips').dataset.state);
+    st2[b.dataset.slug] = st2[b.dataset.slug] === 'contains' ? 'free' : 'contains';
+    $('#confirmChips').dataset.state = JSON.stringify(st2);
+    paintConfirmChips();
+  });
+}
+
+$('#confirmBtn').onclick = openConfirm;
+$('#cancelConfirm').onclick = () => { $('#confirmPanel').hidden = true; };
+
+$('#saveConfirm').onclick = async () => {
+  const ean = $('#ean').value.replace(/\D/g,'');
+  const body = {
+    verdicts: JSON.parse($('#confirmChips').dataset.state || '{}'),
+    ingredients_text: $('#declEdit').value.trim() || null
+  };
+  const r = await fetch(`/api/products/${ean}/confirm`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  if(r.status === 401 || r.status === 403){
+    $('#confirmErr').hidden = false;
+    $('#confirmErr').textContent = 'Din session er udløbet. Log ind igen.';
+    await refreshAuth();
+    return;
+  }
+  if(!r.ok){
+    $('#confirmErr').hidden = false;
+    $('#confirmErr').textContent = 'Kunne ikke gemme ('+r.status+').';
+    return;
+  }
+  $('#confirmPanel').hidden = true;
+  lookup(ean);
+};
+
+/* ---------- filtrering ---------- */
+$('#filterGo').onclick = async () => {
+  const q = $('#filterQ').value.trim();
+  if(!q) return;
+  const r = await fetch('/api/products?exclude=' + encodeURIComponent(q));
+  const d = await r.json();
+  $('#filterWarn').innerHTML = d.warning ? `<p class="warn">${esc(d.warning)}</p>` : '';
+  $('#filterHits').innerHTML = d.products.length
+    ? d.products.map(p => `<li><span><b>${esc(p.name || 'Uden navn')}</b>
+        <span class="sub"><br>${esc(p.brand || '—')} · ${p.n_ingredients} ingredienser indekseret</span></span>
+        <button class="link" data-ean="${esc(p.ean)}">åbn</button></li>`).join('')
+    : '<li class="none">Ingen varer matchede. Indekset fyldes efterhånden som I scanner.</li>';
+  $('#filterHits').querySelectorAll('button[data-ean]').forEach(b => b.onclick = () => {
+    document.querySelector('nav.tabs button[data-view="scan"]').click();
+    lookup(b.dataset.ean);
+  });
+};
+
+$('#sugGo').onclick = async () => {
+  const q = $('#sugQ').value.trim();
+  if(!q) return;
+  const d = await (await fetch('/api/ingredients/suggest?q=' + encodeURIComponent(q))).json();
+  $('#sugHits').innerHTML = d.length
+    ? d.map(i => `<li><span><b>${esc(i.label)}</b>
+        <span class="sub"><br>${i.tag ? esc(i.tag) : 'ikke opløst i taksonomien'}</span></span>
+        <span class="sub">${i.seen}×</span></li>`).join('')
+    : '<li class="none">Intet i indekset endnu. Scan nogle varer først.</li>';
+};
+
+/* ---------- indstillinger ---------- */
+$('#prefName').oninput = e => { prefs.name = e.target.value; savePrefs(); };
+
+function paintPrefChips(){
+  $('#prefChips').innerHTML = ALLERGENS.map(a => `
+    <li><button class="chip" data-slug="${a.slug}" aria-pressed="${prefs.allergens.includes(a.slug)}">
+      ${esc(a.name)} <small>${a.eu14 ? 'EU-14' : 'fritekst'}</small></button></li>`).join('');
+  $('#prefChips').querySelectorAll('.chip').forEach(b => b.onclick = () => {
+    const s = b.dataset.slug;
+    prefs.allergens = prefs.allergens.includes(s)
+      ? prefs.allergens.filter(x => x !== s) : [...prefs.allergens, s];
+    savePrefs(); paintPrefChips();
+  });
+  const fritekst = ALLERGENS.filter(a => prefs.allergens.includes(a.slug) && !a.eu14);
+  $('#prefHint').innerHTML = 'Gemmes kun i denne browser. '
+    + (fritekst.length
+      ? `<b>${fritekst.map(a => esc(a.name)).join(' og ')}</b> er ikke på EU's liste over 14
+         mærkningspligtige allergener og findes derfor kun ved at læse ingredienslisten —
+         aldrig via strukturerede data.`
+      : '');
+}
+
+/* ---------- auth ---------- */
+async function refreshAuth(){
+  const d = await (await fetch('/api/auth/me')).json();
+  USER = d.authenticated ? d : null;
+  $('#loggedIn').hidden = !USER;
+  $('#loggedOut').hidden = !!USER;
+  $('#authBtn').textContent = USER ? USER.name : 'Log ind';
+  if(USER) $('#loginWho').textContent =
+    `Logget ind som ${USER.name} (${USER.role}${USER.source === 'proxy' ? ', via proxy' : ''}).`;
+}
+
+$('#authBtn').onclick = () => {
+  document.querySelector('nav.tabs button[data-view="prefs"]').click();
+  $('#loginPanel').scrollIntoView({behavior:'smooth', block:'center'});
+};
+
+$('#loginGo').onclick = async () => {
+  $('#loginErr').hidden = true;
+  const r = await fetch('/api/auth/login', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({email:$('#loginEmail').value, password:$('#loginPw').value})});
+  if(!r.ok){
+    $('#loginErr').hidden = false;
+    $('#loginErr').textContent = (await r.json().catch(()=>({}))).detail || 'Login mislykkedes.';
+    return;
+  }
+  $('#loginPw').value = '';
+  refreshAuth();
+};
+
+$('#logoutGo').onclick = async () => { await fetch('/api/auth/logout', {method:'POST'}); refreshAuth(); };
+
+/* ---------- opstart ---------- */
+(async () => {
+  paintWho();
+  $('#prefName').value = prefs.name;
+  ALLERGENS = await (await fetch('/api/allergens')).json();
+  prefs.allergens = prefs.allergens.filter(s => ALLERGENS.some(a => a.slug === s));
+  if(!prefs.allergens.length) prefs.allergens = ALLERGENS.map(a => a.slug);
+  savePrefs();
+  paintPrefChips();
+  refreshAuth();
+  const at = await (await fetch('/api/attribution')).json();
+  const n = at.data_sources?.[0]?.records ?? 0;
+  $('#attrib').textContent = `${n} varer i den lokale cache.`;
+  $('#scanHint').textContent = 'BarcodeDetector' in window
+    ? '' : 'Din browser bruger zxing-fallbacken — den er lidt langsommere.';
+})();
+</script>
+</body>
+</html>

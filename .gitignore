@@ -1,0 +1,36 @@
+# --- Hemmeligheder ------------------------------------------------------
+# De rigtige udgaver af disse filer må ALDRIG committes. Kopiér .example-
+# filerne, udfyld dem lokalt, og lad dem blive liggende her.
+.env
+deploy/Caddyfile
+deploy/authelia/configuration.yml
+deploy/authelia/users_database.yml
+deploy/authelia/db.sqlite3
+deploy/authelia/notification.txt
+*.pem
+*.key
+
+# --- Runtime-data -------------------------------------------------------
+# Databasen indeholder jeres domme og brugere. Den hører hjemme i backup,
+# ikke i git.
+data/*.db
+data/*.db-wal
+data/*.db-shm
+pgdata/
+caddy/
+
+# --- Python -------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# --- Værktøj ------------------------------------------------------------
+.DS_Store
+.idea/
+.vscode/
+*.swp

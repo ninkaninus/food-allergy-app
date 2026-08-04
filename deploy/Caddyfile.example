@@ -1,0 +1,34 @@
+# Caddy + Authelia forward-auth.
+#
+# Pointen med opsætningen: LÆSNING slipper forbi Authelia, SKRIVNING gør ikke.
+# Så kan alle familiemedlemmer scanne og filtrere uden konto, mens kun de få,
+# der skal bekræfte varer, behøver at logge ind.
+
+allergi.ditdomæne.dk {
+
+    # Strimler Remote-* fra klienten. Uden det her kan hvem som helst
+    # sætte Remote-User og få skriveadgang. Det er ikke til forhandling.
+    request_header -Remote-User
+    request_header -Remote-Groups
+    request_header -Remote-Email
+    request_header -Remote-Name
+
+    # Alt der skriver skal gennem Authelia.
+    @protected {
+        path /api/products/*/confirm
+        path /api/ocr
+        path /api/auth/users
+        path /api/profiles/*/allergens
+    }
+
+    forward_auth @protected authelia:9091 {
+        uri /api/authz/forward-auth
+        copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
+    }
+
+    reverse_proxy allergiscan:8000
+}
+
+auth.ditdomæne.dk {
+    reverse_proxy authelia:9091
+}

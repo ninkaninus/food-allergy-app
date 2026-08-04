@@ -1,0 +1,280 @@
+# Allergen-regler for AllergiScan
+#
+# LÆSEREKKEFØLGE I MATCHEREN (vigtigt):
+#   1. "exclude" maskeres ud af teksten FØRST (erstattes med ░-blokke)
+#   2. derefter køres "contains" og "maybe" på den maskerede tekst
+#
+# Hvorfor: dansk sammensætter ord. "kakaosmør" indeholder "smør",
+# "kokosmælk" indeholder "mælk", "ægte vanilje" indeholder "æg",
+# "mælkebøtte" indeholder "mælke". Uden maskering får du falske røde.
+#
+# Matcheren kræver desuden ordgrænse FØR mønsteret: (?<![a-zæøå])
+# Det gør at "mælk" rammer "mælkepulver" (præfiks) men ikke "kokosmælk" (suffiks).
+# Sammensætninger hvor allergenet står bagest skal derfor stå eksplicit
+# i "contains" — fx "kærnemælk", "skummetmælk", "sødmælk".
+
+allergens:
+
+  - slug: maelkeprotein
+    name_da: Mælkeprotein
+    name_en: Milk protein
+    off_tag: "en:milk"        # EU-14 → allergens_tags er brugbar når den findes
+    eu14: true
+    note: >
+      Laktosefri er IKKE mælkeproteinfri. Laktosefri mælk indeholder fuld
+      mængde kasein og valle. Reglerne nedenfor maskerer "laktosefri" væk,
+      så et efterfølgende "mælk" stadig fanges.
+    contains:
+      # basis
+      - mælk
+      - komælk
+      - sødmælk
+      - letmælk
+      - minimælk
+      - skummetmælk
+      - kærnemælk
+      - tykmælk
+      - kondenseret mælk
+      - koncentreret mælk
+      - mælkepulver
+      - mælketørstof
+      - mælkefedt
+      - mælkeprotein
+      - modermælkserstatning
+      - mysepulver
+      - mysost
+      # protein-fraktioner (de farlige, som folk overser)
+      - kasein
+      - kaseinat
+      - caseinat
+      - casein
+      - natriumkaseinat
+      - calciumkaseinat
+      - laktalbumin
+      - lactalbumin
+      - laktoglobulin
+      - lactoglobulin
+      - valle
+      - vallepulver
+      - valleprotein
+      - vallepermeat
+      - vallepulverkoncentrat
+      # forarbejdet mejeri
+      - fløde
+      - piskefløde
+      - flødepulver
+      - madlavningsfløde
+      - creme fraiche
+      - crème fraîche
+      - smør
+      - smørfedt
+      - ghee
+      - ost
+      - oste
+      - skæreost
+      - flødeost
+      - smøreost
+      - parmesan
+      - mozzarella
+      - mascarpone
+      - ricotta
+      - cheddar
+      - yoghurt
+      - ymer
+      - skyr
+      - kefir
+      - a38
+      - kvark
+      # engelsk (mange etiketter er flersprogede)
+      - milk
+      - whey
+      - butter
+      - buttermilk
+      - cream
+      - cheese
+      - curd
+      - milk solids
+      - milk powder
+      - skimmed milk
+      - lactalbumin
+    maybe:
+      - mælkesyrekultur       # kan være vegansk, men står ofte i mejeri
+      - starterkultur
+      - naturligt aroma
+      - smøraroma
+      - butter flavour
+    exclude:
+      # negationer — maskeres, så resten af sætningen stadig kan matche
+      - mælkefri
+      - laktosefri
+      - lactose free
+      - lactose-free
+      - dairy free
+      - dairy-free
+      - uden mælk
+      - milk free
+      # plantebaserede "mælke" og "smør"
+      - kokosmælk
+      - sojamælk
+      - havremælk
+      - rismælk
+      - mandelmælk
+      - cashewmælk
+      - hampemælk
+      - nøddemælk
+      - kokosfløde
+      - kokossmør
+      - kakaosmør
+      - sheasmør
+      - jordnøddesmør
+      - mandelsmør
+      - nøddesmør
+      - peanut butter
+      - cocoa butter
+      - shea butter
+      - coconut milk
+      - soy milk
+      - oat milk
+      - almond milk
+      - rice milk
+      # helt andre ord der tilfældigvis starter med mælk/ost/valle
+      - mælkebøtte           # mælkebøtterod
+      - mælkesyre            # E270, normalt vegansk
+      - mælkesyrebakterier
+      - lactic acid
+      - ostindisk
+      - vallensbæk
+
+  - slug: aeg
+    name_da: Æg
+    name_en: Egg
+    off_tag: "en:eggs"
+    eu14: true
+    note: >
+      "ægte" er den klassiske falske positiv på dansk — "ægte vanilje",
+      "ægte lakrids". Den maskeres væk før matchning.
+    contains:
+      - æg
+      - hønseæg
+      - æggeblomme
+      - æggehvide
+      - æggemasse
+      - æggepulver
+      - ægpulver
+      - tørret æg
+      - pasteuriseret æg
+      - flydende æg
+      - ovalbumin
+      - ægalbumin
+      - konalbumin
+      - ovomucoid
+      - livetin
+      - vitellin
+      - globulin
+      - lysozym
+      - e1105                 # lysozym, udvindes af æggehvide
+      - mayonnaise
+      - remoulade
+      - marengs
+      - bearnaise
+      - hollandaise
+      - egg
+      - eggs
+      - albumen
+      - egg white
+      - egg yolk
+    maybe:
+      - lecithin              # oftest soja, men kan være æg
+      - lecitin
+      - e322
+      - emulgator
+      - albumin               # kan også være mælke- eller plantealbumin
+    exclude:
+      - ægte
+      - ægteskab
+      - æggeplante            # aubergine
+      - ægløsning
+      - eggplant
+
+  - slug: jordbaer
+    name_da: Jordbær
+    name_en: Strawberry
+    off_tag: null             # IKKE på EU-14-listen → kun fritekst virker
+    eu14: false
+    note: >
+      Findes ikke i allergens_tags. Skal altid findes i ingredienslisten.
+      "Bærblanding" og "røde frugter" giver derfor MAYBE, ikke CONTAINS —
+      producenten skal ringes op.
+    contains:
+      - jordbær
+      - jordbærpuré
+      - jordbærpure
+      - jordbærsaft
+      - jordbærkoncentrat
+      - jordbærstykker
+      - jordbærmarmelade
+      - fragaria
+      - strawberry
+      - strawberries
+    maybe:
+      - jordbæraroma          # ofte syntetisk, men verificér
+      - bærblanding
+      - bærmix
+      - blandede bær
+      - skovbær
+      - røde bær
+      - røde frugter
+      - frugtblanding
+      - frugtkoncentrat
+      - bærpuré
+      - berry
+      - mixed berries
+      - red fruits
+    exclude:
+      - jordbærplante
+      - jordbærkløver
+
+  - slug: banan
+    name_da: Banan
+    name_en: Banana
+    off_tag: null
+    eu14: false
+    note: >
+      Som jordbær — ikke EU-14. Bananmel dukker op i glutenfri bagværk,
+      og "tropisk frugtblanding" er næsten altid banan.
+    contains:
+      - banan
+      - bananpuré
+      - bananpure
+      - bananmel
+      - bananflager
+      - bananchips
+      - bananstykker
+      - grøn banan
+      - banana
+      - plantain
+    maybe:
+      - tropisk frugtblanding
+      - tropisk frugt
+      - smoothie
+      - frugtblanding
+      - frugtpuré
+      - tropical fruit
+    exclude:
+      - bananfluer
+
+# Generelle sporadvarsler — matches på tværs af alle allergener.
+# Giver aldrig CONTAINS, kun TRACE_RISK.
+trace_markers:
+  - kan indeholde spor af
+  - kan indeholde spor
+  - kan indeholde
+  - fremstillet på et anlæg
+  - fremstillet på fabrik
+  - produceret på et anlæg
+  - hvor der også anvendes
+  - hvor der også håndteres
+  - may contain traces
+  - may contain
+  - produced in a facility
+  - manufactured on equipment

@@ -1,0 +1,76 @@
+# unRAID: /mnt/user/appdata/allergiscan
+#
+#   cp .env.example .env && $EDITOR .env
+#   docker compose up -d --build
+#   docker compose exec allergiscan python -m app.cli adduser dig@example.dk "William"
+#
+# Valgfrie profiler:
+#   docker compose --profile postgres up -d   # Postgres i stedet for SQLite
+#   docker compose --profile proxy up -d      # Caddy + Authelia
+#
+# Alle indstillinger kommer fra .env, som er gitignoreret. Se .env.example.
+
+services:
+  allergiscan:
+    build: .
+    container_name: allergiscan
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8420}:8000"
+    volumes:
+      - ${DATA_PATH:-./data-runtime}:/data
+      # Reglerne kan rettes uden rebuild — rediger og genstart containeren.
+      - ./data/allergens.yaml:/app/data/allergens.yaml:ro
+    environment:
+      OFF_USER_AGENT: "${OFF_USER_AGENT:-AllergiScan/0.2 (selfhosted)}"
+      HOUSEHOLD_NAME: "${HOUSEHOLD_NAME:-Vores husstand}"
+      PROFILE_NAME: "${PROFILE_NAME:-Barn}"
+      TZ: "${TZ:-Europe/Copenhagen}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-1}"
+      SESSION_DAYS: "${SESSION_DAYS:-30}"
+      CHECK_PWNED_PASSWORDS: "${CHECK_PWNED_PASSWORDS:-1}"
+      MIN_PASSWORD_LEN: "${MIN_PASSWORD_LEN:-14}"
+      TRUST_PROXY_AUTH: "${TRUST_PROXY_AUTH:-0}"
+      TRUSTED_PROXY_HOSTS: "${TRUSTED_PROXY_HOSTS:-caddy}"
+      DATABASE_URL: "${DATABASE_URL:-}"
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: allergiscan-db
+    profiles: ["postgres"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: allergiscan
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?sæt POSTGRES_PASSWORD i .env}"
+      POSTGRES_DB: allergiscan
+      TZ: "${TZ:-Europe/Copenhagen}"
+    volumes:
+      - ${PGDATA_PATH:-./pgdata}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U allergiscan"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: allergiscan-caddy
+    profiles: ["proxy"]
+    restart: unless-stopped
+    ports: ["443:443", "80:80"]
+    volumes:
+      # Kopiér deploy/Caddyfile.example til deploy/Caddyfile først.
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${CADDY_PATH:-./caddy}:/data
+    depends_on: [allergiscan, authelia]
+
+  authelia:
+    image: authelia/authelia:latest
+    container_name: allergiscan-auth
+    profiles: ["proxy"]
+    restart: unless-stopped
+    volumes:
+      # Kopiér .example-filerne i deploy/authelia/ og udfyld dem først.
+      - ./deploy/authelia:/config
+    environment:
+      TZ: "${TZ:-Europe/Copenhagen}"

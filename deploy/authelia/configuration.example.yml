@@ -1,0 +1,46 @@
+# Minimal Authelia til en håndfuld brugere. Skift ALLE hemmeligheder.
+# Kør `docker compose exec authelia authelia crypto hash generate argon2`
+# for at lave password-hashes til users_database.yml.
+
+theme: light
+server:
+  address: 'tcp://0.0.0.0:9091'
+
+identity_validation:
+  reset_password:
+    jwt_secret: 'SKIFT-MIG-mindst-64-tilfældige-tegn'
+
+authentication_backend:
+  file:
+    path: /config/users_database.yml
+    password:
+      algorithm: argon2
+
+access_control:
+  default_policy: deny
+  rules:
+    # Kun de få der skal kunne bekræfte varer.
+    - domain: 'allergi.ditdomæne.dk'
+      policy: two_factor
+      subject: ['group:curators']
+
+session:
+  secret: 'SKIFT-MIG-mindst-64-tilfældige-tegn'
+  cookies:
+    - domain: 'ditdomæne.dk'
+      authelia_url: 'https://auth.ditdomæne.dk'
+      default_redirection_url: 'https://allergi.ditdomæne.dk'
+
+storage:
+  encryption_key: 'SKIFT-MIG-mindst-64-tilfældige-tegn'
+  local:
+    path: /config/db.sqlite3
+
+notifier:
+  filesystem:
+    filename: /config/notification.txt
+
+regulation:
+  max_retries: 3
+  find_time: 2m
+  ban_time: 10m
