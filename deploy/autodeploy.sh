@@ -17,6 +17,10 @@
 # Kør den fra User Scripts-plugin'et på et cron-skema, fx hvert 5. minut.
 # Den tager en fil-lås, så overlappende kørsler er ufarlige.
 #
+# Kræver kun det, stock unRAID har: bash, docker, flock. git følger IKKE
+# med unRAID — mangler den, kører git-kommandoerne i en engangs-container
+# (alpine/git) med samme stier, så resultatet er identisk.
+#
 # Alt kan overstyres med miljøvariabler; defaults passer til layoutet i
 # deploy/UNRAID.md.
 
@@ -30,7 +34,24 @@ GHCR_USER="${GHCR_USER:-ninkaninus}"
 STATE_FILE="$REPO_DIR/.deploy-state"      # sidste commit der bestod healthcheck
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-90}"     # sekunder; containerens probe kører hvert 30. s
 
+# Filerne i repoet ejes typisk af root eller nobody på unRAID; uden dette
+# nægter git at røre dem ("dubious ownership").
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'
+
 log() { printf '%s  %s\n' "$(date '+%F %T')" "$*"; }
+
+run_git() {
+    if command -v git >/dev/null 2>&1; then
+        git "$@"
+        return
+    fi
+    local extra=()
+    [ -d "$SECRETS_DIR" ] && extra+=(-v "$SECRETS_DIR:$SECRETS_DIR:ro")
+    [ -n "${GIT_SSH_COMMAND:-}" ] && extra+=(-e "GIT_SSH_COMMAND=$GIT_SSH_COMMAND")
+    docker run --rm -v "$REPO_DIR:$REPO_DIR" -w "$REPO_DIR" \
+        -e GIT_CONFIG_COUNT -e GIT_CONFIG_KEY_0 -e GIT_CONFIG_VALUE_0 \
+        "${extra[@]}" alpine/git "$@"
+}
 
 # Opdatér eller tilføj KEY=VALUE i .env. .env er gitignoreret, så
 # git reset --hard rører den ikke.
@@ -44,7 +65,7 @@ set_env() {
 }
 
 wait_healthy() {
-    local waited=0 status
+    local waited=0 status=ukendt
     while [ "$waited" -lt "$HEALTH_TIMEOUT" ]; do
         status=$(docker inspect --format '{{.State.Health.Status}}' allergiscan 2>/dev/null || echo mangler)
         [ "$status" = healthy ] && return 0
@@ -57,7 +78,7 @@ wait_healthy() {
 
 deploy() {
     local sha=$1
-    git reset --hard --quiet "$sha"
+    run_git reset --hard --quiet "$sha"
     set_env APP_IMAGE "$IMAGE:sha-$sha"
     docker compose up -d --quiet-pull
 }
@@ -86,8 +107,8 @@ main() {
     cd "$REPO_DIR"
 
     # Læseadgang: deploy-nøgle til git (privat repo) og token til GHCR
-    # (privat package). Begge er valgfrie — offentligt repo/package kræver
-    # ingen af delene.
+    # (privat package). Begge er valgfrie — offentligt repo klonet over
+    # https og offentlig pakke kræver ingen af delene.
     if [ -f "$SECRETS_DIR/deploy_key" ]; then
         export GIT_SSH_COMMAND="ssh -i $SECRETS_DIR/deploy_key -o IdentitiesOnly=yes -o UserKnownHostsFile=$SECRETS_DIR/known_hosts -o StrictHostKeyChecking=accept-new"
     fi
@@ -95,9 +116,9 @@ main() {
         docker login ghcr.io -u "$GHCR_USER" --password-stdin <"$SECRETS_DIR/ghcr_token" >/dev/null 2>&1
     fi
 
-    git fetch --quiet origin "$BRANCH"
+    run_git fetch --quiet origin "$BRANCH"
     local want last_good running
-    want=$(git rev-parse "origin/$BRANCH")
+    want=$(run_git rev-parse "origin/$BRANCH")
     last_good=$(cat "$STATE_FILE" 2>/dev/null || true)
     running=$(docker inspect --format '{{.State.Running}}' allergiscan 2>/dev/null || echo false)
 
@@ -112,7 +133,7 @@ main() {
         exit 0
     fi
 
-    log "deployer $want (fra $(git rev-parse --short HEAD))"
+    log "deployer $want (fra $(run_git rev-parse --short HEAD))"
     deploy "$want"
     wait_healthy || rollback
 

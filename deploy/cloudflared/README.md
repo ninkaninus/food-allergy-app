@@ -16,8 +16,8 @@ ikke installere noget.
 
 ```bash
 # 1. Opret tunnellen i Cloudflare Zero Trust-dashboardet
-#    Networks -> Tunnels -> Create a tunnel -> Cloudflared
-#    Kopiér tokenet.
+#    Networking -> Tunnels -> Create a tunnel -> Cloudflared
+#    Kopiér tokenet. Udførlig klikvej: se deploy/UNRAID.md trin 4.
 
 # 2. Læg det i .env
 echo 'TUNNEL_TOKEN=DIT_TOKEN_HER' >> .env
@@ -32,9 +32,9 @@ docker compose --profile tunnel up -d
 ```
 
 Bemærk `http://allergiscan:8000` — cloudflared taler til containeren over
-Docker-netværket. Der er ikke brug for Caddy, og porten skal ikke eksponeres
-på værten. Fjern gerne `ports:`-blokken fra allergiscan-servicen når tunnellen
-kører, så er der ingen vej udenom.
+Docker-netværket. Der er ikke brug for Caddy, og porten er som default kun
+bundet til 127.0.0.1 på værten (`APP_BIND` i `.env`), så tunnellen er den
+eneste vej ind udefra.
 
 ## Adgangskontrol: to modeller
 

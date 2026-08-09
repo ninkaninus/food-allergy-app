@@ -21,7 +21,11 @@ services:
     container_name: allergiscan
     restart: unless-stopped
     ports:
-      - "${APP_PORT:-8420}:8000"
+      # Default binder kun til loopback: tunnellen taler til containeren over
+      # Docker-netværket, og /healthz kan nås fra hosten — men der er ingen
+      # vej ind fra LAN udenom Cloudflare. Sæt APP_BIND=0.0.0.0 i .env for
+      # at teste over LAN (kameraet virker dog kun over HTTPS, se cloudflared/).
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8420}:8000"
     volumes:
       - ${DATA_PATH:-./data-runtime}:/data
       # Reglerne kan rettes uden rebuild — rediger og genstart containeren.

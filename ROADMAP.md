@@ -10,14 +10,19 @@ koden først kan efterprøves der.
 
 Målet er ikke en pæn app. Målet er at scanne én rigtig vare i Netto.
 
+Trin-for-trin med verifikation undervejs: [`deploy/UNRAID.md`](deploy/UNRAID.md).
+Kort fortalt:
+
+- [ ] Klon repoet til `/mnt/user/appdata/allergiscan/repo`
 - [ ] `cp .env.example .env`, sæt `OFF_USER_AGENT` til din egen mail
 - [ ] `docker compose up -d --build` på unRAID
 - [ ] `docker compose exec allergiscan python -m app.cli adduser dig@example.dk "William"`
 - [ ] Opret Cloudflare Tunnel, peg den på `http://allergiscan:8000`
-- [ ] `docker compose --profile tunnel up -d`
-- [ ] Fjern `ports:` fra allergiscan-servicen, så der ikke er en vej udenom
+      (porten binder som default kun til loopback, så tunnellen er eneste vej ind)
 - [ ] Åbn sitet på telefonen, læg det på hjemmeskærmen
 - [ ] Scan ti varer fra dit eget køkken
+- [ ] Slå auto-deploy til (afsnit 2 i `deploy/UNRAID.md`), så push til main
+      er dit deploy fremover
 
 **Det, du lærer her, er vigtigere end resten af listen.** Ti varer fortæller
 dig, hvor stor andel Open Food Facts faktisk dækker for netop de mærker, I
