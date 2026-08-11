@@ -155,8 +155,23 @@ class ToggleIn(BaseModel):
 
 
 @app.post("/api/profiles/{profile_id}/allergens")
-def toggle_allergen(profile_id: int, body: ToggleIn, db: Session = Depends(get_session)):
-    """Slå et allergen til/fra uden at røre ved produktdata eller domme."""
+def toggle_allergen(
+    profile_id: int,
+    body: ToggleIn,
+    _: User = Depends(require_curator),
+    db: Session = Depends(get_session),
+):
+    """
+    Slå et allergen til/fra uden at røre ved produktdata eller domme.
+
+    Kræver login som de øvrige skrivninger. Fluebenene i PWA'en går IKKE
+    herigennem — de bor i telefonens localStorage og sendes med som
+    `allergens=` på hvert opslag, så dagplejerens telefon kan sætte sine egne
+    kryds uden konto. Det her endpoint skriver den gemte profil, altså den
+    tilstand `scan` falder tilbage på, når parameteren mangler. Læsning er
+    fortsat åben; det er kun ændringer af, hvad appen advarer om, der kræver
+    en bruger.
+    """
     a = db.scalar(select(Allergen).where(Allergen.slug == body.slug))
     if a is None:
         raise HTTPException(404, "ukendt allergen")

@@ -91,6 +91,35 @@ def test_ocr_rejected_without_login(client):
     assert r.status_code == 401
 
 
+def test_toggle_allergen_rejected_without_login(client):
+    """
+    Fluebenene i PWA'en er localStorage og rører aldrig serveren — de sendes
+    med som `allergens=` på hvert opslag. Det her endpoint skriver den GEMTE
+    profil, altså den tilstand `scan` falder tilbage på, når parameteren
+    mangler. At ændre hvad appen advarer om, er en skrivning som enhver anden.
+    """
+    pid = client.get("/api/profiles").json()[0]["id"]
+    r = client.post(
+        f"/api/profiles/{pid}/allergens", json={"slug": "maelkeprotein", "active": False}
+    )
+    assert r.status_code == 401
+
+
+def test_toggle_allergen_works_with_login(auth):
+    pid = auth.get("/api/profiles").json()[0]["id"]
+    assert auth.post(
+        f"/api/profiles/{pid}/allergens", json={"slug": "maelkeprotein", "active": False}
+    ).status_code == 200
+
+    efter = {a["slug"]: a["active"] for a in auth.get("/api/profiles").json()[0]["allergens"]}
+    assert efter["maelkeprotein"] is False
+
+    # Sæt tilbage, så testrækkefølgen ikke kan betyde noget for de øvrige.
+    auth.post(
+        f"/api/profiles/{pid}/allergens", json={"slug": "maelkeprotein", "active": True}
+    )
+
+
 def test_bad_password_rejected(client):
     r = client.post("/api/auth/login", json={"email": "w@example.dk", "password": "forkert"})
     assert r.status_code == 401

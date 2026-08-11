@@ -519,8 +519,9 @@ docker compose exec postgres psql -U allergiscan -d allergiscan \
 - **Ingen image-signering (cosign).** Kæden commit → CI → GHCR → digest er
   sporbar nok til én husstand. Deler I appen en dag (fase 4), så genbesøg.
 - **Ingen Cloudflare Access foran.** Appen er bevidst offentligt læsbar — der
-  er intet fortroligt i, om en pakke indeholder mælk. Vær opmærksom på, at
-  `POST /api/profiles/{id}/allergens` i skrivende stund ikke kræver login og
-  altså kan slå et allergen fra udefra, hvorefter scanninger holder op med at
-  advare om det. Skal det lukkes, er en Access-politik på hostnavnet det ene
-  lag og auth på det endpoint det andet; de to er uafhængige.
+  er intet fortroligt i, om en pakke indeholder mælk, og læsning kræver derfor
+  ingen konto. Fluebenene bor i telefonens localStorage og sendes med som
+  `allergens=` på hvert opslag, så dagplejerens telefon kan scanne uden
+  bruger. Til gengæld kræver **alle** skrivninger login, også
+  `POST /api/profiles/{id}/allergens`, der ændrer den gemte profil — altså den
+  tilstand, `scan` falder tilbage på, når `allergens=` ikke er sat.
