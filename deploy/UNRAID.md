@@ -159,6 +159,60 @@ Klikvej i Cloudflare (menupunkter pr. august 2026):
 **Tjek:** åbn `https://allergi.ditdomæne.dk/healthz` på din *telefon* over
 mobilnet (ikke wifi) — svarer den, virker hele kæden udefra.
 
+### Trin 4, variant — genbrug en cloudflared, du allerede har
+
+Kører der i forvejen en tunnel-container på serveren (fx fra en CA-skabelon),
+kan den betjene appen i stedet for den medfølgende. Tre ting skal på plads,
+og de hænger sammen.
+
+**Netværket.** Appens port er bundet til `127.0.0.1`, så tunnellen skal ind på
+compose-netværket for at kunne nå den. Dockers standard-`bridge` har ingen
+navne-DNS — kun brugerdefinerede netværk har det — så det er tunnellen, der
+skal flyttes ind til appen, ikke omvendt:
+
+```bash
+NET=$(docker inspect allergiscan -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')
+docker network connect "$NET" <tunnel-container>
+```
+
+Service-URL i Cloudflare bliver `http://allergiscan:8000` — containernavnet,
+ikke serverens IP. Verificér med en engangscontainer på samme netværk:
+
+```bash
+docker run --rm --network "$NET" curlimages/curl -s http://allergiscan:8000/healthz
+```
+
+Bemærk at forbindelsen **falder af, hver gang tunnel-containeren gendannes** —
+fx ved Apply eller Update i unRAIDs Docker-fane. Appen bliver utilgængelig
+udefra uden nogen fejlmeddelelse; tunnellen kører videre og kan bare ikke
+længere slå `allergiscan` op. Kør `docker network connect` igen efter hver
+opdatering af tunnellen. Det er prisen for at spare en container.
+
+**Profilen skal være tom**, ellers starter den medfølgende cloudflared også:
+
+```
+COMPOSE_PROFILES=
+```
+
+**`TUNNEL_TOKEN` skal alligevel have en værdi.** Compose interpolerer hele
+filen, *før* den filtrerer på profiler, så `${TUNNEL_TOKEN:?…}` fejler, selv
+om servicen aldrig startes. (Derfor slap trin 3 igennem uden token: der
+navngives `allergiscan` eksplicit, og så nøjes compose med den service.)
+Værdien bruges ikke:
+
+```
+TUNNEL_TOKEN=ubrugt-ekstern-tunnel
+```
+
+Begge linjer hører hjemme i `.env`, ikke i `docker-compose.yml`: `.env` er den
+eneste fil, agentens `git reset --hard` ikke rører, og `:?`-guarden er rigtig
+for alle, der *bruger* den medfølgende tunnel — de skal have den klare fejl
+frem for en cloudflared, der starter med tomt token og fejler uforståeligt.
+
+Slet til sidst den tunnel, du evt. nåede at oprette i trin 4. Et ubrugt token
+er ikke en konfigurationsrest, men en levende legitimation til at åbne en
+indgang til dit netværk.
+
 ### Trin 5 — telefonerne og de ti varer
 
 1. Åbn `https://allergi.ditdomæne.dk` på begge telefoner.
@@ -309,9 +363,10 @@ Stubben peger på scriptet *inde i repoet*, så agenten opdaterer sig selv
 sammen med resten. Den er struktureret, så det er sikkert midt i en kørsel,
 og en fil-lås gør overlappende starter harmløse.
 
-**Tjek — spring ikke dette over.** Der er en kendt fejl i User Scripts på
-nogle unRAID 7.1.x-udgaver, hvor Custom-skemaet vises i UI'et, men aldrig
-skrives til cron:
+**Tjek — spring ikke dette over.** Der var en kendt fejl i User Scripts på
+nogle unRAID 7.1.x-udgaver, hvor Custom-skemaet blev vist i UI'et, men aldrig
+skrevet til cron. På 7.3.2 er den ikke set. Tjek alligevel — det tager ti
+sekunder, og alternativet er en agent, der ser installeret ud og aldrig kører:
 
 ```bash
 grep -A1 allergiscan /etc/cron.d/root
@@ -373,3 +428,9 @@ når den hverken kunne deploye eller rulle tilbage.
   disk rører agenten aldrig.
 - **Ingen image-signering (cosign).** Kæden commit → CI → GHCR → digest er
   sporbar nok til én husstand. Deler I appen en dag (fase 4), så genbesøg.
+- **Ingen Cloudflare Access foran.** Appen er bevidst offentligt læsbar — der
+  er intet fortroligt i, om en pakke indeholder mælk. Vær opmærksom på, at
+  `POST /api/profiles/{id}/allergens` i skrivende stund ikke kræver login og
+  altså kan slå et allergen fra udefra, hvorefter scanninger holder op med at
+  advare om det. Skal det lukkes, er en Access-politik på hostnavnet det ene
+  lag og auth på det endpoint det andet; de to er uafhængige.
