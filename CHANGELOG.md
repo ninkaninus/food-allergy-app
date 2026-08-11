@@ -3,6 +3,26 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.11.0 — 11. august 2026
+
+- **Filtrér-fanen er nu én søgning, som i en netbutik.** Ét søgefelt
+  finder på tværs af BÅDE de varer, I har scannet, og hele jeres gamle
+  godkendt-liste — I skal ikke længere lede to steder.
+- **Filtre med tal, som på en webshop:** Alle · Sikre · Ikke tilladt ·
+  Skal tjekkes · Fra jeres liste, og derunder jeres egne kategorier
+  (Pålæg 194, Bagning 112, Brød 67 …) og butikker (Netto, Rema1000 …).
+  Tallene opdaterer sig efter de filtre, I allerede har valgt.
+- **»Fri for«-knapper pr. allergen.** Slår I mælk fra, forsvinder de
+  varer, hvor mælk ER fundet. Bemærk: det er ikke et løfte om, at
+  resten er fri — farven på hver enkelt vare gælder stadig, og grøn
+  kræver stadig, at et menneske har læst emballagen.
+- Søgningen er ligeglad med æ, ø og å: »palaeg«, »pålæg« og »paalaeg«
+  finder det samme.
+- Rettet: skrev man hurtigt, kunne et gammelt, langsomt søgesvar
+  overhale det nye og vise forkerte resultater.
+- Rettet: en databasekolonne fra 0.10.0 blev aldrig oprettet på
+  eksisterende installationer, så listen kunne fejle ved opslag.
+
 ## 0.10.0 — 11. august 2026
 
 - **Importen henter selv regnearket.** Sæt `LISTE_URL` i `.env` til

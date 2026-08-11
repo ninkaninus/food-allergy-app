@@ -4,7 +4,7 @@ import os
 import secrets
 from pathlib import Path
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from .matcher import Ruleset
@@ -37,8 +37,41 @@ def get_session() -> Session:
         db.close()
 
 
+def tilfoej_manglende_kolonner() -> None:
+    """
+    Additiv mini-migrering, kørt ved hver opstart.
+
+    `create_all` opretter kun tabeller, der mangler helt — en NY kolonne på
+    en tabel, der allerede findes, laver den aldrig. Uden det her giver et
+    deploy, der tilføjer en kolonne, "no such column" på jeres eksisterende
+    database, og appen ser ud til at være i stykker uden grund. (Det skete
+    med `imported_product.valideret_mod` mellem 0.9.0 og 0.10.0.)
+
+    Kun tilføjelser: aldrig sletning, aldrig typeændring. Nye kolonner
+    laves nullable uanset modellen, for de eksisterende rækker har ingen
+    værdi — har kolonnen en skalar default, fyldes den bagefter ind.
+    """
+    insp = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        findes = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in findes:
+                continue
+            ddl = col.type.compile(engine.dialect)
+            with engine.begin() as con:
+                con.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {ddl}'))
+                d = getattr(col.default, "arg", None)
+                if d is not None and not callable(d):
+                    con.execute(
+                        text(f'UPDATE "{table.name}" SET "{col.name}" = :v'), {"v": d}
+                    )
+
+
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    tilfoej_manglende_kolonner()
     with SessionLocal() as db:
         # Allergener synkroniseres fra YAML ved hver opstart.
         for slug, rule in RULES.allergens.items():
