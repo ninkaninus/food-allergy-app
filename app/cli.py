@@ -201,6 +201,34 @@ def migrate(kilde: str, maal: str | None = None) -> None:
                     "frisk database — se fremgangsmåden i deploy/UNRAID.md."
                 )
 
+    # Forkontrol af fremmednøgler. SQLite håndhæver dem ikke; Postgres gør.
+    # En database, der har virket i månedsvis, kan derfor have brudte
+    # referencer — og dem vil vi vide om FØR flytningen, ikke som en
+    # halvvejs mislykket indsættelse med et stakspor.
+    brud = []
+    with k_eng.connect() as k:
+        for t in Base.metadata.sorted_tables:
+            for fk in t.foreign_keys:
+                barn, foraelder = fk.parent, fk.column
+                mangler = k.execute(
+                    select(barn, func.count())
+                    .where(barn.isnot(None))
+                    .where(barn.notin_(select(foraelder)))
+                    .group_by(barn)
+                ).all()
+                if mangler:
+                    brud.append((t.name, barn.name, foraelder.table.name, mangler))
+    if brud:
+        print("Kildedatabasen har referencer, der peger på rækker, som ikke findes:")
+        for tabel, kol, mod, mangler in brud:
+            vaerdier = ", ".join(f"{v} ({n}x)" for v, n in mangler[:5])
+            mere = f" og {len(mangler) - 5} flere" if len(mangler) > 5 else ""
+            print(f"  {tabel}.{kol} -> {mod}: {vaerdier}{mere}")
+        sys.exit(
+            "Flytningen er ikke påbegyndt — intet er ændret. Ret referencerne "
+            "i kilden, eller opdatér appen, hvis begrænsningen er forkert."
+        )
+
     total = 0
     with k_eng.connect() as k, m_eng.begin() as m:
         for t in Base.metadata.sorted_tables:

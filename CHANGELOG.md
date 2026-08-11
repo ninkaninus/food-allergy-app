@@ -3,6 +3,14 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.16.1 — 11. august 2026
+
+- Rettet: flytningen af databasen til den nye databaseserver stoppede
+  halvvejs, fordi bekræftelseskøen husker stregkoder, appen endnu ikke
+  har en vare for — hvilket er selve pointen med »ikke fundet«-poster.
+  Køen må nu gerne pege på en ukendt stregkode, og flytningen tjekker
+  desuden alt igennem, FØR den rører noget.
+
 ## 0.16.0 — 11. august 2026
 
 - **Ny OCR-motor: appen læser nu deklarationer markant bedre.** Målt på

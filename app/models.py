@@ -143,14 +143,26 @@ class Verdict(Base):
 
 
 class ReviewItem(Base):
-    """Bekræftelseskøen — varer som skal dobbelttjekkes mod den fysiske emballage."""
+    """
+    Bekræftelseskøen — varer som skal dobbelttjekkes mod den fysiske emballage.
+
+    `product_ean` er med vilje IKKE en fremmednøgle, ligesom i `Scan`.
+    Køens vigtigste post er netop `reason="not_found"`: en stregkode, som
+    Open Food Facts ikke kender, og som derfor ikke har nogen række i
+    `product`. Kravet om et produkt ville gøre det umuligt at huske "den
+    her skal I fotografere" — altså dét, køen er til for.
+
+    SQLite håndhæver ikke fremmednøgler, så begrænsningen var i praksis
+    uden virkning; den viste sig først, da databasen skulle flyttes til
+    Postgres, hvor 14 køposter ikke kunne indsættes.
+    """
 
     __tablename__ = "review_item"
     __table_args__ = (UniqueConstraint("household_id", "product_ean"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     household_id: Mapped[int] = mapped_column(ForeignKey("household.id"))
-    product_ean: Mapped[str] = mapped_column(ForeignKey("product.ean"))
+    product_ean: Mapped[str] = mapped_column(String(20), index=True)
     # new_from_off | no_ingredients | recipe_changed | maybe_hit | not_found
     reason: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(16), default="pending")
