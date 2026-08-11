@@ -272,8 +272,16 @@ bruger det indbyggede `GITHUB_TOKEN` — der er **ingen secrets at oprette**.
 1. Push til main (eller lav en tom commit: `git commit --allow-empty -m "CI" && git push`).
 2. GitHub → repoet → **Actions**-fanen → kørslen "Test, byg og udgiv" skal
    ende grøn. Test-jobbet kører de 52 tests; byg-jobbet skubber imaget.
-3. Gå til repoets forside → **Packages** i højre spalte →
-   `food-allergy-app`. Findes den, virker CI-kæden.
+3. Find pakken. Den er **bruger-scoped**, ikke repo-scoped, så den bor under
+   din profil og ikke inde i repoet:
+   `https://github.com/users/<bruger>/packages/container/package/food-allergy-app`
+   (eller `github.com/<bruger>?tab=packages`). Den vises også i repoets højre
+   spalte, men langt nede under About og Releases, hvor den er nem at overse.
+   Findes den, virker CI-kæden.
+
+   Bemærk at pakkesiden kan halte bagefter i UI'et. Det autoritative svar er
+   `docker pull` fra serveren — lykkes den, findes imaget, uanset hvad
+   websiden viser.
 
 **Anbefalet: gør pakken offentlig**, så serveren intet token skal bruge
 (koden er allerede åben, og imaget indeholder intet hemmeligt — `.env` og
