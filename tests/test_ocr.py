@@ -110,3 +110,46 @@ def test_exif_rotation_respekteres():
     assert r["ok"]
     assert r["confidence"] >= 70
     assert "hvedemel" in r["text"].lower()
+
+
+def _helposefoto():
+    """
+    Foto af HELE posen, som folk faktisk tager dem: lys tekst på mørk
+    bund, deklarationen er en lille blok, og der er grafik omkring.
+    Det er casen, hvor ét-pas-OCR gav 28 % konfidens og ren volapyk på
+    et rigtigt foto — to-pas-redningen skal finde blokken og læse den.
+    """
+    import io
+    from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+    img = Image.new("L", (1500, 1900), 70)          # mørk pose
+    d = ImageDraw.Draw(img)
+    stor = ImageFont.truetype(_font(), 40)
+    lille = ImageFont.truetype(_font(), 26)
+    d.text((120, 150), "Økologisk müsli med banan", font=stor, fill=210)
+    for x, y, r_ in [(200, 420, 90), (900, 300, 70), (1200, 800, 110), (400, 1500, 80)]:
+        d.ellipse([x, y, x + r_, y + r_ // 2], outline=110, width=4)   # "grafik"
+    d.multiline_text(
+        (120, 700),
+        "Ingredienser: 43% glutenfri havregryn,\n"
+        "rørsukker, 13% bananchips (banan,\n"
+        "kokosolie, sukker), puffede ris,\n"
+        "7% ristede kokosflager.",
+        font=lille, fill=215, spacing=12,
+    )
+    d.text((120, 1100), "Opbevaring: Tørt og ved stuetemperatur.", font=lille, fill=215)
+    img = img.filter(ImageFilter.GaussianBlur(0.5))
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "JPEG", quality=80)
+    return buf.getvalue()
+
+
+@kraever_tesseract
+def test_helposefoto_reddes_af_topas():
+    r = read_declaration(_helposefoto())
+    assert r["ok"]
+    t = r["text"].lower()
+    # Det afgørende: allergenordene overlever, så matcheren kan se dem.
+    assert "banan" in t
+    assert "havregryn" in t
+    assert r["confidence"] >= 50

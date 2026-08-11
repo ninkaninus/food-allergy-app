@@ -3,6 +3,15 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.5.0 — 11. august 2026
+
+- **OCR finder nu selv ingredienslisten på et foto af hele posen** —
+  også når teksten er lys på mørk baggrund, som på mange danske poser.
+  Før skulle billedet være et nærbillede af selve deklarationen; nu
+  leder appen efter »Ingredienser«, beskærer og læser kun det. Testet
+  på et rigtigt foto, der før gav volapyk: nu læses deklarationen,
+  inklusive de allergener, der faktisk står på pakken.
+
 ## 0.4.0 — 11. august 2026
 
 - Appen viser nu sit versionsnummer nederst på siden, med et link til
