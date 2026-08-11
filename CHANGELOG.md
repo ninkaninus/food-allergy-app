@@ -3,6 +3,20 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.7.0 — 11. august 2026
+
+- **OCR er kalibreret mod syv rigtige fotos af en mørk pose** og læser
+  nu også nærbilleder af lys tekst på mørk baggrund — også når ordet
+  »Ingredienser« ikke er med i rammen. Seks af de syv fotos læses;
+  banan (som faktisk står på pakken) fanges i alle seks.
+- **Ubrugelige billeder giver ikke længere falske røde kryds.** Er
+  læsningen for dårlig til automatisk tjek, siger appen det, og du
+  læser selv teksten eller tager et nyt billede — uskarpt vrøvl kan
+  ikke længere blive til advarsler.
+- Rettet: teksten kunne blive klippet fra ernæringstabellen i stedet
+  for ingredienslisten, fordi »indhold« matchede inde i
+  »Næringsindhold«.
+
 ## 0.6.0 — 11. august 2026
 
 - **Fejl gemmer sig ikke længere som »ingen data«.** Kan serveren ikke

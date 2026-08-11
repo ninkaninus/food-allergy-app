@@ -33,6 +33,13 @@ def test_section_marker_efterlader_ikke_er():
 def test_section_uden_markoer_er_hele_teksten():
     assert extract_section("Hvedemel, sukker") == "Hvedemel, sukker"
 
+def test_indhold_matcher_ikke_inde_i_naeringsindhold():
+    """Målt på et rigtigt foto: 'indhold' matchede inde i 'Næringsindhold',
+    og sektionen blev ernæringstabel i stedet for ingrediensliste."""
+    t = "Næringsindhold pr. 100 g: Energi 1888 kJ, Fedt 18 g"
+    assert extract_section(t) == t          # ingen markør — hele teksten
+    assert extract_section("Indhold: hvedemel, vand").startswith("hvedemel")
+
 
 # --- integration: kræver tesseract + dan + font ----------------------------
 
@@ -153,3 +160,37 @@ def test_helposefoto_reddes_af_topas():
     assert "banan" in t
     assert "havregryn" in t
     assert r["confidence"] >= 50
+
+
+def _naerbillede_lys_paa_moerk():
+    """
+    Nærbillede af deklarationen på en mørk pose, hvor 'Ingredienser' er
+    skåret ud af rammen. Her kan to-pas-redningen ikke finde sin markør —
+    lys-polariteten SKAL være en fuldgyldig kandidat for hele billedet.
+    """
+    import io
+    from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+    img = Image.new("L", (1400, 520), 70)
+    d = ImageDraw.Draw(img)
+    d.multiline_text(
+        (60, 60),
+        "rørsukker, 13% bananchips (banan,\n"
+        "kokosolie, sukker, honning), puffede ris,\n"
+        "7% ristede kokosflager, solsikkeolie.",
+        font=ImageFont.truetype(_font(), 30), fill=220, spacing=16,
+    )
+    img = img.filter(ImageFilter.GaussianBlur(0.5))
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "JPEG", quality=80)
+    return buf.getvalue()
+
+
+@kraever_tesseract
+def test_lys_tekst_uden_markoer_laeses():
+    r = read_declaration(_naerbillede_lys_paa_moerk())
+    assert r["ok"]
+    t = r["text"].lower()
+    assert "banan" in t
+    assert "kokosolie" in t
+    assert r["confidence"] >= 60

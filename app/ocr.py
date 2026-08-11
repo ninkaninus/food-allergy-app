@@ -159,14 +159,17 @@ def _find_declaration_crop(gray: Image.Image, lang: str) -> Image.Image | None:
 def extract_section(text: str) -> str:
     """Klipper deklarationen ud af al den anden tekst på pakken."""
     low = text.lower()
-    # Tidligste markør vinder; står to på samme position ("ingredienser"
-    # og "ingrediens"), vinder den længste — ellers blev "er:" hængende
-    # forrest i den udklippede tekst.
+    # Markører kræver ordgrænse foran, som i matcheren: "indhold" må ikke
+    # matche inde i "Næringsindhold" — så bliver sektionen ernæringstabel
+    # i stedet for ingrediensliste. Tidligste markør vinder; står to på
+    # samme position ("ingredienser" og "ingrediens"), vinder den længste,
+    # ellers blev "er:" hængende forrest i den udklippede tekst.
     best: tuple[int, int] | None = None  # (position, markørlængde)
     for m in SECTION_MARKERS:
-        i = low.find(m)
-        if i == -1:
+        hit = re.search(r"(?<![a-zæøå])" + re.escape(m), low)
+        if hit is None:
             continue
+        i = hit.start()
         if best is None or i < best[0] or (i == best[0] and len(m) > best[1]):
             best = (i, len(m))
     if best is None:
@@ -176,9 +179,9 @@ def extract_section(text: str) -> str:
     low_tail = tail.lower()
     end = len(tail)
     for m in END_MARKERS:
-        i = low_tail.find(m)
-        if i != -1:
-            end = min(end, i)
+        hit = re.search(r"(?<![a-zæøå])" + re.escape(m), low_tail)
+        if hit is not None:
+            end = min(end, hit.start())
     return tail[:end].lstrip(" :.-\n").strip()
 
 
@@ -205,24 +208,27 @@ def read_declaration(data: bytes, lang: str = "dan+eng") -> dict:
         return {"ok": False, "error": f"Kunne ikke læse billedet: {e}"}
 
     gray = _grayscale(img)
-    proc = _binarize(gray)
 
-    # psm 6 = én sammenhængende tekstblok. Passer til et nærbillede af
-    # en deklaration — den almindelige og bedste måde at bruge OCR på.
-    config = "--oem 1 --psm 6"
+    # Begge polariteter er fuldgyldige kandidater. Mange danske poser har
+    # LYS tekst på mørk bund, og et nærbillede af sådan en deklaration —
+    # uden "Ingredienser" i rammen — kan to-pas-redningen nedenfor ikke
+    # redde, for den finder aldrig sin markør. Læsningen med højest
+    # filtreret konfidens vinder; er mørk-tekst-læsningen god (>= 80,
+    # normaltilfældet), springes den lyse over.
+    raw, mean_conf = "", -1.0
     try:
-        raw = pytesseract.image_to_string(proc, lang=lang, config=config)
-        data_tsv = pytesseract.image_to_data(
-            proc, lang=lang, config=config, output_type=pytesseract.Output.DICT
-        )
+        for invert in (False, True):
+            proc = _binarize(ImageOps.invert(gray) if invert else gray)
+            text, conf = _reconstruct(_tsv(proc, lang, 6), threshold=10)
+            if conf > mean_conf:
+                raw, mean_conf = text, conf
+            if mean_conf >= 80:
+                break
     except pytesseract.TesseractError as e:
         return {"ok": False, "error": f"Tesseract fejlede: {e}"}
     except pytesseract.TesseractNotFoundError:
         return {"ok": False, "error": "Tesseract er ikke installeret i containeren."}
-
-    confs = [int(c) for c in data_tsv.get("conf", []) if str(c).lstrip("-").isdigit()]
-    confs = [c for c in confs if c >= 0]
-    mean_conf = round(sum(confs) / len(confs), 1) if confs else 0.0
+    mean_conf = max(mean_conf, 0.0)
 
     # To-pas-redning for fotos af HELE posen. Målt på et rigtigt foto
     # (lys tekst på mørkerød pose, præget grafik): helbilledet gav 28 %

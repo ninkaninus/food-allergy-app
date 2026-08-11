@@ -591,6 +591,19 @@ async def ocr_declaration(
     if not res.get("ok"):
         return res
 
+    # Under 45 % konfidens er "teksten" mest grafik-støj, og fuzzy-
+    # matchning på støj kan give falske røde forhåndskryds. Det lyder
+    # forsigtigt, men er det modsatte: et rødt kryds, der udspringer af
+    # vrøvl, lærer folk at ignorere de røde kryds. Intet forhåndstjek —
+    # mennesket læser selv, eller tager et nyt billede.
+    if res["confidence"] < 45:
+        res["allergens"] = []
+        res["hint"] = (
+            "Billedet er for utydeligt til automatisk tjek. Tag et nyt — "
+            "tættere på, uden genskin — eller ret teksten og læs den selv."
+        )
+        return res
+
     # Kør teksten gennem matcheren med OCR-tolerance slået til, så
     # bekræftelsesskærmen kan pege på hvad der skal efterses. Tesseract
     # laver "skummetmaalkspulver" ud af "skummetmælkspulver", og eksakt
