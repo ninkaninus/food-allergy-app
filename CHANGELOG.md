@@ -3,6 +3,22 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.16.0 — 11. august 2026
+
+- **Ny OCR-motor: appen læser nu deklarationer markant bedre.** Målt på
+  40 af jeres egne butiksfotos læser den næsten tre gange så mange
+  rigtige ord som før — og den er seks gange hurtigere (2 sekunder mod
+  9). Fotos, der før gav det rene volapyk, læses nu: tekst på klar
+  plast, mørke poser, etiketter der ligger på tværs.
+- **Færre falske advarsler.** På en Bierwurst-pakke advarede den gamle
+  læsning om æg, som slet ikke stod på etiketten — og overså selleri,
+  som gjorde. Den nye rammer rigtigt begge steder.
+- OCR kører nu i sin egen container ved siden af appen. Svarer den ikke,
+  bruger appen den gamle læsning i stedet, så scanning aldrig går helt
+  i stå.
+- Databasen har også fået sin egen container. Jeres data ligger uændret,
+  til I selv vælger at flytte dem (fremgangsmåde i deploy/UNRAID.md).
+
 ## 0.15.0 — 11. august 2026
 
 - **Billeder af deklarationen gemmes nu i telefonens fulde opløsning.**

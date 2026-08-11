@@ -105,14 +105,30 @@ app/
   ingredients.py  bredt ingrediensindeks   <- den upræcise
   auth.py         sessioner, argon2, HIBP, proxy/Access-identitet
   cfaccess.py     Cloudflare Access JWT-validering
-  ocr.py          Tesseract + forbehandling
+  ocr.py          Tesseract + forbehandling  <- nu FALDSKÆRM, ikke hovedvej
+  ocr_klient.py   kalder OCR-containeren, falder tilbage til ocr.py
   off.py          Open Food Facts-klient
   models.py       SQLAlchemy
   db.py           SQLite eller Postgres
   cli.py          adduser, reindex
   static/         PWA (én HTML-fil, ingen build)
+ocr_service/main.py   OCR i EGEN container (rapidocr/PP-OCRv6)
 data/allergens.yaml   reglerne — mountes read-only, redigeres uden rebuild
 ```
+
+**OCR er delt i to med vilje.** `ocr_service/` er en dum tjeneste: pixels
+ind, tegn ud. Den kender intet til dansk orddannelse, allergener eller
+domme — al betydning lægges på i appen (`efterbehandl()` i `ocr.py`,
+reglerne i `matcher.py`). Grunden er dobbelt: `onnxruntime` er native
+kode, som ikke må kunne tage web-appen og databasen med sig i et
+segfault, og sikkerhedslogikken skal bo ét sted.
+
+Målt på 40 af familiens egne butiksfotos: 2,8× så mange rigtige danske
+ord som Tesseract, 6× hurtigere, nul tabte allergener. De tre steder,
+hvor Tesseract fandt et allergen, den nye motor ikke fandt, var alle
+falske positiver fra fuzzy-matchning på grafikstøj — efterprøvet mod
+etiketterne. Tesseract er beholdt som faldskærm, fordi OCR er
+hovedvejen: OFF kender kun ~10 % af familiens varer med ingrediensliste.
 
 Frontend er bevidst én fil uden byggetrin. Der er ingen node_modules, ingen
 bundler, intet at holde opdateret. `zxing-wasm` er vendoret i

@@ -508,6 +508,56 @@ docker compose exec postgres psql -U allergiscan -d allergiscan \
   -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
 ```
 
+## Tre containere, ikke én
+
+Fra 0.16.0 består stakken af tre ting, der kan fejle hver for sig:
+
+| Container | Rolle | Fejler den? |
+|---|---|---|
+| `allergiscan` | web-app, database-adgang, domme | appen er nede |
+| `allergiscan-ocr` | OCR: billede → tekst | appen falder tilbage til den svagere indbyggede læsning |
+| `allergiscan-db` | Postgres | kun i brug hvis `DATABASE_URL` er sat |
+
+Adskillelsen er ikke pynt. `onnxruntime` i OCR-tjenesten er native kode:
+et segfault dér ville tage web-appen — og dermed databaseforbindelsen —
+med sig, hvis de delte proces. Samtidig holdes de ~700 MB modeller ude
+af app-imaget, så udrulninger bliver ved med at være hurtige.
+
+Agenten deployer app og OCR som ét par: begge images skal findes med
+samme `sha-`tag, ellers venter den. De kan altså ikke komme i utakt.
+
+**Tjek efter en udrulning:**
+
+```bash
+docker ps --filter name=allergiscan     # tre containere, alle healthy
+curl -s http://127.0.0.1:8420/api/diagnostik | grep -o '"ocr":[^}]*}'
+```
+
+Bruger appen den svage vej, står `"engine":"tesseract"` i svaret på et
+OCR-kald — kig så i `docker logs allergiscan-ocr`.
+
+## Flyt databasen til Postgres-containeren
+
+Postgres-containeren kører allerede, men appen bruger den først, når
+`DATABASE_URL` er sat. Rækkefølgen er vigtig: **migrér før appen starter
+mod den tomme database**, ellers seeder opstarten en tom husstand, og
+migreringen nægter (den kræver et helt tomt mål frem for at duplikere).
+
+```bash
+cd /mnt/user/appdata/allergiscan/repo
+nano .env      # POSTGRES_PASSWORD=<langt kodeord>, og fjern # foran DATABASE_URL
+docker compose up -d postgres
+docker compose run --rm allergiscan python -m app.cli migrate /data/allergiscan.db
+docker compose up -d
+```
+
+**Tjek:** `curl -s http://127.0.0.1:8420/api/diagnostik` — `motor` skal
+være `postgres`, og tællingerne skal matche dem, I havde før. SQLite-filen
+bliver liggende urørt som sikkerhedsnet, indtil I selv sletter den.
+
+Fortryder I, er vejen tilbage at kommentere `DATABASE_URL` ud igen og
+køre `docker compose up -d`. Alt, I har lavet imens, står dog i Postgres.
+
 ## Bevidste fravalg
 
 - **Ingen webhook/push-deploy.** Et webhook-endpoint er en ekstra dør i en
