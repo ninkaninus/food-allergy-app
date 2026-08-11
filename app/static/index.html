@@ -121,6 +121,9 @@ nav.tabs button[aria-current="true"]{color:var(--ink);box-shadow:inset 0 3px 0 v
 
 footer{padding:22px 0 30px;font-size:12.5px;color:var(--muted);line-height:1.55}
 footer a{color:var(--muted)}
+.relnotes{font-size:13px;color:var(--muted)}
+.relnotes h4{margin:14px 0 4px;font-size:13px;color:var(--ink)}
+.relnotes p{margin:4px 0;line-height:1.5}
 </style>
 </head>
 <body>
@@ -246,11 +249,17 @@ footer a{color:var(--muted)}
     </section>
   </section>
 
+  <section class="sec" id="relPanel" hidden>
+    <h3>Nyheder</h3>
+    <div id="relBody" class="relnotes"></div>
+  </section>
+
   <footer>
     <p>Produktdata fra <a href="https://openfoodfacts.org">Open Food Facts</a>, ODbL 1.0.
     Billeder CC BY-SA 3.0. Jeres egne domme er jeres eget arbejde.
     <span id="attrib"></span></p>
     <p>Hjælpeværktøj, ikke en medicinsk anordning. Læs altid etiketten.</p>
+    <p><span id="verTag">AllergiScan</span> · <a href="#" id="relLink">Nyheder</a></p>
   </footer>
 </div>
 
@@ -610,6 +619,34 @@ $('#loginGo').onclick = async () => {
 
 $('#logoutGo').onclick = async () => { await fetch('/api/auth/logout', {method:'POST'}); refreshAuth(); };
 
+/* ---------- version & nyheder ---------- */
+// Changeloggen er markdown. Ingen parser-dependency — kun de tre ting,
+// filen faktisk bruger: ##-overskrifter, punkter og **fed**.
+function renderNyheder(txt){
+  const linjer = [];
+  for(const l of txt.split('\n')){       // ophæv hårde linjeombrydninger
+    if(/^\s{2,}\S/.test(l) && linjer.length) linjer[linjer.length-1] += ' ' + l.trim();
+    else linjer.push(l);
+  }
+  return linjer.map(l => {
+    l = esc(l);
+    if(l.startsWith('## ')) return `<h4>${l.slice(3)}</h4>`;
+    if(l.startsWith('# ')) return '';    // titlen — panelet har sin egen
+    if(l.startsWith('- ')) return `<p>• ${l.slice(2)}</p>`;
+    return l.trim() ? `<p>${l}</p>` : '';
+  }).join('').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+}
+
+$('#relLink').onclick = async e => {
+  e.preventDefault();
+  const p = $('#relPanel');
+  p.hidden = !p.hidden;
+  if(!p.hidden && !$('#relBody').innerHTML){
+    $('#relBody').innerHTML = renderNyheder(await (await fetch('/api/changelog')).text());
+  }
+  if(!p.hidden) p.scrollIntoView({behavior:'smooth', block:'nearest'});
+};
+
 /* ---------- opstart ---------- */
 (async () => {
   paintWho();
@@ -620,6 +657,10 @@ $('#logoutGo').onclick = async () => { await fetch('/api/auth/logout', {method:'
   savePrefs();
   paintPrefChips();
   refreshAuth();
+  try {
+    const v = await (await fetch('/api/version')).json();
+    $('#verTag').textContent = `AllergiScan v${v.version}`;
+  } catch { /* footeren viser bare navnet uden version */ }
   const at = await (await fetch('/api/attribution')).json();
   const n = at.data_sources?.[0]?.records ?? 0;
   $('#attrib').textContent = `${n} varer i den lokale cache.`;

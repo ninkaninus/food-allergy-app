@@ -11,8 +11,10 @@ import os
 
 import httpx
 
+from .version import VERSION
+
 BASE = os.getenv("OFF_BASE_URL", "https://world.openfoodfacts.org")
-UA = os.getenv("OFF_USER_AGENT", "AllergiScan/0.1 (selfhosted; kontakt@example.dk)")
+UA = os.getenv("OFF_USER_AGENT", f"AllergiScan/{VERSION} (selfhosted; kontakt@example.dk)")
 
 FIELDS = ",".join(
     [

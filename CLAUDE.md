@@ -145,6 +145,20 @@ python -m app.cli adduser dig@example.dk "Navn"
 Tesseract med dansk sprogmodel skal være installeret, ellers fejler
 OCR-stien: `apt install tesseract-ocr tesseract-ocr-dan`.
 
+## Versionering og release notes — fast del af enhver ændring
+
+Enhver brugervendt ændring — funktion eller rettelse — skal, i samme commit:
+
+1. Bumpe `VERSION` i `app/version.py`. Semantisk: MAJOR ved brud, MINOR
+   ved ny funktionalitet, PATCH ved rettelser.
+2. Have en dateret post ØVERST i `CHANGELOG.md`, skrevet til de to
+   voksne, der bruger appen — hvad betyder det for dem i Netto, ikke
+   hvad der skete i koden.
+
+Footeren i appen viser version og »Nyheder« automatisk; frontend skal
+ikke røres. `tests/test_version.py` fejler, hvis `VERSION` mangler sin
+post i changeloggen — de to følges ad, uden undtagelser.
+
 ## Sprog
 
 Kode, kommentarer, commits og UI er på dansk. Ingredienslisterne er danske,

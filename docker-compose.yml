@@ -31,7 +31,7 @@ services:
       # Reglerne kan rettes uden rebuild — rediger og genstart containeren.
       - ./data/allergens.yaml:/app/data/allergens.yaml:ro
     environment:
-      OFF_USER_AGENT: "${OFF_USER_AGENT:-AllergiScan/0.2 (selfhosted)}"
+      OFF_USER_AGENT: "${OFF_USER_AGENT:-AllergiScan (selfhosted)}"
       HOUSEHOLD_NAME: "${HOUSEHOLD_NAME:-Vores husstand}"
       PROFILE_NAME: "${PROFILE_NAME:-Barn}"
       TZ: "${TZ:-Europe/Copenhagen}"

@@ -6,7 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -27,6 +27,7 @@ from .auth import (
 )
 from .db import RULES, default_household, get_session, init_db
 from .matcher import Basis, State, aggregate, ingredients_hash, normalize
+from .version import VERSION
 from .models import (
     Allergen,
     User,
@@ -630,6 +631,20 @@ def attribution(db: Session = Depends(get_session)):
         },
         "software": "Se NOTICE.md i kildekoden.",
     }
+
+
+@app.get("/api/version")
+def version():
+    return {"version": VERSION}
+
+
+@app.get("/api/changelog")
+def changelog():
+    """Release notes som ren tekst — frontend viser dem under »Nyheder«."""
+    path = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
+    if not path.exists():
+        return PlainTextResponse("Ingen release notes fundet.", status_code=404)
+    return PlainTextResponse(path.read_text(encoding="utf-8"))
 
 
 @app.get("/healthz")

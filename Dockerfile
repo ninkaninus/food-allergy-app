@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r /requirements.txt
 
 COPY app /app/app
 COPY data /app/data
-COPY NOTICE.md LICENSE /app/
+COPY NOTICE.md LICENSE CHANGELOG.md /app/
 
 ENV DATA_DIR=/data RULES_PATH=/app/data/allergens.yaml PYTHONPATH=/app
 EXPOSE 8000
