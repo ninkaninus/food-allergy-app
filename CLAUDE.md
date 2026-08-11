@@ -30,7 +30,7 @@ Fire tests håndhæver det:
 Hvis du står med en ændring, der ville få dem til at fejle, er ændringen
 forkert — ikke testene.
 
-## Fire ting, der ser mærkelige ud, men ikke er det
+## Fem ting, der ser mærkelige ud, men ikke er det
 
 ### 1. Maskering med `░` i stedet for at fjerne tekst
 
@@ -59,7 +59,24 @@ Uden det første ville `jordbæraroma` blive rød på præfikset `jordbær`.
 `_mask()` har desuden en `protect`-parameter, så en kort undtagelse
 (`mælkesyre`) ikke skygger for et længere maybe-mønster (`mælkesyrekultur`).
 
-### 4. Fuzzy-matchning kun på OCR-tekst
+### 4. Sporangivelser læses for sig, pr. allergen
+
+"Kan indeholde spor af mælk" er ikke mælk i ingredienslisten, og forskellen
+betyder noget: nogle tåler spor, andre gør ikke. `_spor_spans()` finder
+teksten fra sporfrasen til punktum (med et loft på 200 tegn, fordi OCR taber
+punktummer og ét spor-span ellers kunne sluge resten af listen og gøre et
+rigtigt allergen til "kun spor" — under-advarsel er den farlige retning).
+
+Spanet maskeres UD af contains-passet, og allergenets egne mønstre køres så
+*inde i* spanet: træf dér giver `TRACE_STATEMENT` (gul), ikke rød. Står
+allergenet både i listen og i sporangivelsen, vinder listen.
+
+Nævner spanet mindst ét allergen, vi kender, er den konkret, og de øvrige
+allergener rammes ikke. Nævner den intet genkendeligt, får alle
+`TRACE_UNSPECIFIED`. Før gjorde enhver sporfrase alle 17 allergener gule —
+en app, der råber ulv ved hver vare, holder folk op med at læse.
+
+### 5. Fuzzy-matchning kun på OCR-tekst
 
 Målt: Tesseract læser en dansk deklaration med 89,8 % konfidens og laver
 `skummetmælkspulver` om til `skummetmaalkspulver`, `jordbær` til `jordbzer`.

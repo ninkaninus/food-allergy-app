@@ -2,7 +2,7 @@
 import pathlib, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import pytest
-from app.matcher import Ruleset, State
+from app.matcher import Basis, Ruleset, State
 
 R = Ruleset(pathlib.Path(__file__).resolve().parents[1] / "data" / "allergens.yaml")
 
@@ -59,9 +59,56 @@ AROMA = [
 def test_aroma_is_amber_not_red(slug, text, expected):
     assert R.evaluate(slug, text).state is expected
 
-def test_trace_marker_is_amber():
-    v = R.evaluate("maelkeprotein", "Hvedemel, sukker. Kan indeholde spor af nødder.")
+# --- spor er ikke det samme som indhold ------------------------------------
+# Forskellen betyder noget for dem, der bruger appen: nogle tåler spor,
+# andre gør ikke. Tidligere gjorde en sporangivelse det nævnte allergen
+# RØDT (som stod det i ingredienslisten) og alle andre allergener gule —
+# også dem, etiketten slet ikke nævnte. Begge dele er rettet her.
+
+def test_spor_af_allergenet_er_gult_ikke_roedt():
+    v = R.evaluate("maelkeprotein", "Hvedemel, sukker. Kan indeholde spor af mælk.")
     assert v.state is State.TRACE_RISK
+    assert v.basis is Basis.TRACE_STATEMENT
+
+
+def test_spor_af_noget_ANDET_rammer_ikke_dette_allergen():
+    """Etiketten siger hvilke spor der er risiko for. Nævner den kun
+    nødder, er mælk ikke en sporrisiko — og en app, der råber ulv ved
+    hver eneste vare, bliver holdt op med at blive læst."""
+    v = R.evaluate("maelkeprotein", "Hvedemel, sukker. Kan indeholde spor af nødder.")
+    assert v.state is State.UNKNOWN
+    assert R.evaluate("noedder", "Hvedemel, sukker. Kan indeholde spor af nødder.").state \
+        is State.TRACE_RISK
+
+
+def test_ingredienslisten_vinder_over_sporangivelsen():
+    """Står allergenet BÅDE i listen og i sporangivelsen, er det rødt."""
+    for t in [
+        "Hvedemel, mælk, sukker. Kan indeholde spor af nødder.",
+        "Hvedemel, mælk. Kan indeholde spor af mælk og nødder.",
+    ]:
+        assert R.evaluate("maelkeprotein", t).state is State.CONTAINS
+
+
+def test_vag_sporangivelse_advarer_stadig_bredt():
+    """Kan vi ikke se HVAD der er spor af, må alle få den gule."""
+    v = R.evaluate("maelkeprotein", "Hvedemel, sukker. Kan indeholde spor af andre kornsorter.")
+    assert v.state is State.TRACE_RISK
+    assert v.basis is Basis.TRACE_UNSPECIFIED
+
+
+def test_anlaegsformulering_taeller_som_spor():
+    v = R.evaluate("noedder", "Mel, salt. Fremstillet på et anlæg, hvor der også anvendes nødder.")
+    assert v.state is State.TRACE_RISK
+    assert v.basis is Basis.TRACE_STATEMENT
+
+
+def test_spor_uden_punktum_sluger_ikke_resten():
+    """OCR taber punktummer. Uden loft på spanet kunne én markør sluge
+    resten af teksten og gøre et rigtigt allergen til "kun spor" —
+    under-advarsel er den farlige retning."""
+    lang = ("Kan indeholde spor af nødder " + "fyld " * 60 + "mælk sukker")
+    assert R.evaluate("maelkeprotein", lang).state is State.CONTAINS
 
 
 # --- OCR-tolerance ---------------------------------------------------------

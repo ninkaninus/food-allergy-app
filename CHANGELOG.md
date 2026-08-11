@@ -19,6 +19,21 @@ Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 - Databasen har også fået sin egen container. Jeres data ligger uændret,
   til I selv vælger at flytte dem (fremgangsmåde i deploy/UNRAID.md).
 
+## 0.16.0 — 11. august 2026
+
+- **»Spor af mælk« er ikke længere det samme som mælk.** Står allergenet
+  kun i sporadvarslen nederst på pakken, er varen nu GUL med teksten
+  »spor ifølge etiketten — ikke i ingredienslisten«. Står det i selve
+  ingredienslisten, er den stadig rød. Det var den vigtigste forskel at
+  få rigtig: nogle tåler spor, andre gør ikke.
+- **Sporadvarsler gælder kun dét, etiketten faktisk nævner.** Før gjorde
+  »kan indeholde spor af nødder« ALLE jeres allergener gule — også mælk
+  og æg, som pakken slet ikke nævnte. Nu rammer den kun nødder.
+- Siger etiketten bare »kan indeholde spor« uden at nævne hvad, advarer
+  appen stadig bredt. Vi ved det ikke, og så siger vi det.
+- Står allergenet både i ingredienslisten og i sporadvarslen, er varen
+  rød. Ingredienslisten vinder altid.
+
 ## 0.15.0 — 11. august 2026
 
 - **Billeder af deklarationen gemmes nu i telefonens fulde opløsning.**

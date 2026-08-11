@@ -104,6 +104,8 @@ class Basis(str, Enum):
     OFF_TRACE_TAG = "off_trace_tag"
     TEXT_MATCH = "text_match"
     TEXT_MAYBE = "text_maybe"
+    TRACE_STATEMENT = "trace_statement"      # "kan indeholde spor af mælk"
+    TRACE_UNSPECIFIED = "trace_unspecified"  # sporadvarsel uden navn på allergen
     OCR_FUZZY = "ocr_fuzzy"            # omtrentligt match i OCR-tekst
     NO_TEXT = "no_text"                # der var slet ingen ingrediensliste
     NOT_FOUND_IN_TEXT = "not_found_in_text"
@@ -173,8 +175,54 @@ class Ruleset:
                 "exclude": _compile(a.get("exclude")),
             }
         self.trace_markers = _compile(raw.get("trace_markers", []))
+        self._spor_cache: dict[str, bool] = {}
 
     # -- intern hjælper -----------------------------------------------------
+
+    def _spor_spans(self, text: str) -> list[tuple[int, int]]:
+        """
+        Hvor står sporangivelserne — fra markøren til sætningen slutter.
+
+        "Kan indeholde spor af mælk" er ikke det samme som mælk i
+        ingredienslisten, og forskellen betyder noget for dem, der bruger
+        appen: nogle tåler spor, andre gør ikke. Derfor skal teksten efter
+        markøren behandles for sig.
+
+        Spanet stopper ved punktum eller efter 200 tegn. Loftet er der,
+        fordi OCR taber punktummer: uden det kunne én markør midt i en
+        dårligt læst tekst sluge resten af ingredienslisten og gøre et
+        rigtigt allergen til "kun spor" — under-advarsel er den farlige
+        retning.
+        """
+        spans: list[tuple[int, int]] = []
+        for _, rx in self.trace_markers:
+            for m in rx.finditer(text):
+                slut = len(text)
+                for tegn in ".;!":
+                    i = text.find(tegn, m.end())
+                    if i != -1:
+                        slut = min(slut, i)
+                spans.append((m.start(), min(slut, m.end() + 200)))
+        return spans
+
+    def _naevner_allergen(self, tekst: str) -> bool:
+        """Nævner sporangivelsen overhovedet et allergen, vi kender?
+
+        Gør den det, er den konkret, og så gælder den kun de nævnte.
+        Gør den det ikke ("kan indeholde spor af andre kornsorter"), er
+        den vag, og så må alle få den gule advarsel.
+        """
+        if tekst in self._spor_cache:
+            return self._spor_cache[tekst]
+        svar = any(
+            rx.search(tekst)
+            for rules in self.allergens.values()
+            for _, rx in rules["contains"]
+        )
+        if len(self._spor_cache) > 256:
+            self._spor_cache.clear()
+        self._spor_cache[tekst] = svar
+        return svar
 
     @staticmethod
     def _mask(
@@ -257,6 +305,19 @@ class Ruleset:
         ]
         for_maybe = self._mask(text, rules["exclude"], protect=protect)
 
+        # Sporangivelsen maskeres UD af contains-passet. "Kan indeholde spor
+        # af mælk" må ikke læses som mælk i ingredienslisten — det er hele
+        # forskellen mellem "aldrig" og "vi vurderer fra gang til gang".
+        # Står allergenet BÅDE i listen og i sporangivelsen, vinder listen,
+        # fordi det kun er spanet der maskeres.
+        spor_spans = self._spor_spans(text)
+        if spor_spans:
+            tegn = list(for_contains)
+            for a, b in spor_spans:
+                for i in range(a, min(b, len(tegn))):
+                    tegn[i] = MASK_CHAR
+            for_contains = "".join(tegn)
+
         hits = self._find(for_contains, text, rules["contains"])
         if hits:
             return AllergenVerdict(allergen_slug, State.CONTAINS, Basis.TEXT_MATCH, hits)
@@ -278,11 +339,35 @@ class Ruleset:
                     [Hit(pattern=p, start=a, end=b, excerpt=raw) for p, a, b, raw in fz],
                 )
 
+        # Nævner sporangivelsen NETOP dette allergen? Så er det gult — og
+        # kun for det allergen. Før gjorde enhver sporadvarsel alle 17
+        # gule, også dem etiketten slet ikke nævner, og en app der råber
+        # ulv ved hver vare bliver holdt op med at blive læst.
+        if spor_spans:
+            spor_hits: list[Hit] = []
+            vagt = False
+            for a, b in spor_spans:
+                udsnit = text[a:b]
+                for h in self._find(udsnit, udsnit, rules["contains"]):
+                    spor_hits.append(Hit(h.pattern, a + h.start, a + h.end, h.excerpt))
+                if not self._naevner_allergen(udsnit):
+                    vagt = True
+            if spor_hits:
+                return AllergenVerdict(
+                    allergen_slug, State.TRACE_RISK, Basis.TRACE_STATEMENT, spor_hits
+                )
+            if vagt:
+                return AllergenVerdict(
+                    allergen_slug,
+                    State.TRACE_RISK,
+                    Basis.TRACE_UNSPECIFIED,
+                    [Hit(t, a, b, text[a:b]) for a, b in spor_spans for t in ["spor"]][:1],
+                )
+
         maybe_hits = self._find(for_maybe, text, rules["maybe"])
-        trace_hits = self._find(for_maybe, text, self.trace_markers)
-        if maybe_hits or trace_hits:
+        if maybe_hits:
             return AllergenVerdict(
-                allergen_slug, State.TRACE_RISK, Basis.TEXT_MAYBE, maybe_hits + trace_hits
+                allergen_slug, State.TRACE_RISK, Basis.TEXT_MAYBE, maybe_hits
             )
 
         # 3. Intet fundet. Det er UNKNOWN — ikke FREE.

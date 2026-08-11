@@ -369,7 +369,7 @@ let ALLERGENS = [], USER = null, LAST = null;
 
 const COPY = {
   unsafe:    ['Fundet','Ikke sikker','Mindst ét af de allergener, I holder øje med, står i deklarationen.'],
-  caution:   ['Usikker','Skal tjekkes','Sporadvarsler eller ingredienser, der kan skjule et allergen.'],
+  caution:   ['Usikker','Skal tjekkes','Spor ifølge etiketten, eller en ingrediens der kan skjule et allergen. Ikke det samme som at det står i deklarationen.'],
   unverified:['Ikke bekræftet','Ved det ikke','Motoren fandt ingenting — men det er ikke det samme som frit.'],
   safe:      ['Bekræftet','Sikker','Alle valgte allergener er manuelt afkrydset mod emballagen.'],
   unknown:   ['Ukendt vare','Ingen data','Stregkoden findes ikke i Open Food Facts. Fotografér deklarationen.'],
@@ -378,6 +378,8 @@ const COPY = {
 const BASIS = {manual:'bekræftet af et menneske', off_allergen_tag:'allergen-tag fra Open Food Facts',
   off_trace_tag:'sportag fra Open Food Facts', text_match:'fundet i ingredienslisten',
   text_maybe:'usikker ingrediens i listen', no_text:'ingen ingrediensliste',
+  trace_statement:'SPOR ifølge etiketten — ikke i ingredienslisten',
+  trace_unspecified:'etiketten advarer om spor, men siger ikke hvilke',
   not_found_in_text:'ikke fundet i teksten'};
 
 /* ---------- visninger ---------- */
@@ -813,7 +815,7 @@ async function soeg(){
     : r === 'safe' ? 'free' : '';
   const forklaring = v => v.status === 'safe' ? 'bekræftet mod emballagen'
     : v.status === 'unsafe' ? (v.problemer.join(', ') || 'allergen fundet')
-    : v.status === 'caution' ? 'spor? ' + (v.spor.join(', ') || '')
+    : v.status === 'caution' ? 'spor/usikkert: ' + (v.spor.join(', ') || '')
     : v.status === 'uscannet' ? (v.valideret_mod ? 'fra arket — bekræftet uden ' + v.valideret_mod : 'fra arket, ikke scannet endnu')
     : 'ikke bekræftet';
 
