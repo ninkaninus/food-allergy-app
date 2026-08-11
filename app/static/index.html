@@ -355,6 +355,21 @@ document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => {
 });
 
 /* ---------- opslag ---------- */
+// Sat fra listen: "knyt stregkode" på en række fra arket, som mangler en.
+let ventendeKobling = null;
+
+function koblingLinje(gl, ean){
+  const knyttet = gl.ean && gl.ean === ean;
+  const knap = !USER ? ''
+    : knyttet
+      ? `<button class="link" data-kobl="${gl.id}" data-fjern="1">fjern koblingen</button>`
+      : `<button class="link" data-kobl="${gl.id}">det er denne vare</button>`;
+  return `<p class="meta">&#128203; ${knyttet ? 'Knyttet til' : 'Ligner'} <b>${esc(gl.navn)}</b>`
+    + `${gl.producent ? ' (' + esc(gl.producent) + ')' : ''} fra jeres liste`
+    + `${gl.valideret_mod ? ' — bekræftet uden ' + esc(gl.valideret_mod) + ',' : ' —'}`
+    + ` men tjek stadig emballagen. ${knap}</p>`;
+}
+
 async function lookup(code){
   const ean = String(code ?? $('#ean').value).replace(/\D/g,'');
   if(ean.length < 8){ $('#ean').focus(); return; }
@@ -409,9 +424,28 @@ function render(d){
     + `<div><h2>${esc(p.name || 'Ukendt vare')}</h2>
        <p class="meta">${esc(p.brand || '—')}${p.quantity ? ' · '+esc(p.quantity) : ''}</p>
        <p class="meta ean">${esc(d.ean)}</p>
-       ${gl ? `<p class="meta">&#128203; Ligner <b>${esc(gl.navn)}</b>${gl.producent ? ' ('+esc(gl.producent)+')' : ''}
-         fra jeres gamle liste${gl.valideret_mod ? ' — bekræftet uden '+esc(gl.valideret_mod)+',' : ' —'}
-         men tjek stadig emballagen.</p>` : ''}</div>`;
+       ${gl ? koblingLinje(gl, d.ean) : ''}</div>`;
+
+  if(ventendeKobling && d.found && !(gl && gl.ean === d.ean)){
+    $('#prod').insertAdjacentHTML('beforeend',
+      `<p class="meta"><button class="link" data-kobl="${ventendeKobling.id}">`
+      + `knyt denne stregkode til «${esc(ventendeKobling.navn)}» fra listen</button></p>`);
+  }
+
+  $('#prod').querySelectorAll('button[data-kobl]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    const r = await fetch(`/api/liste/${b.dataset.kobl}/stregkode`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ean: b.dataset.fjern ? null : d.ean}),
+    });
+    if(!r.ok){
+      const e = await r.json().catch(() => ({}));
+      $('#scanHint').textContent = e.detail || 'Koblingen mislykkedes.';
+      b.disabled = false; return;
+    }
+    ventendeKobling = null;
+    lookup(d.ean);            // hent igen, så linjen viser den nye tilstand
+  });
 
   $('#rows').innerHTML = (d.allergens||[]).map(a => `
     <li><span class="dot ${a.state}"></span>
@@ -680,7 +714,8 @@ async function soeg(){
           v.butik,
           v.scannet && v.paa_listen ? 'også på arket' : null,
         ].filter(Boolean).map(t => `<span class="badge">${esc(t)}</span>`).join('')}</span></span>
-      ${v.ean ? `<button class="link" data-ean="${esc(v.ean)}">åbn</button>` : ''}</li>`;
+      ${v.ean ? `<button class="link" data-ean="${esc(v.ean)}">åbn</button>`
+        : (USER && v.liste_id ? `<button class="link" data-kobl-id="${v.liste_id}" data-navn="${esc(v.navn)}">knyt stregkode</button>` : '')}</li>`;
 
   $('#sHits').innerHTML = d.grupper.length
     ? d.grupper.map(g => `<li class="gruppe">
@@ -691,6 +726,13 @@ async function soeg(){
             ? `<li class="mere"><button class="link" data-kat="${esc(g.navn)}">vis alle ${g.antal} i ${esc(g.navn)}</button></li>`
             : '')).join('')
     : `<li class="none">Ingen træf. ${soegState.q || soegState.fri.size || soegState.kategori ? 'Prøv at fjerne et filter.' : 'Listen fyldes, når I scanner varer — eller importerer arket.'}</li>`;
+
+  $('#sHits').querySelectorAll('button[data-kobl-id]').forEach(b => b.onclick = () => {
+    ventendeKobling = {id: b.dataset.koblId, navn: b.dataset.navn};
+    document.querySelector('nav.tabs button[data-view="scan"]').click();
+    $('#scanHint').textContent = `Scan «${ventendeKobling.navn}» — så knytter jeg stregkoden til den række.`;
+    $('#ean').focus();
+  });
 
   $('#sHits').querySelectorAll('button[data-kat]').forEach(b => b.onclick = () => {
     soegState.kategori = b.dataset.kat === 'Uden kategori' ? null : b.dataset.kat;

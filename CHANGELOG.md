@@ -3,6 +3,20 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.13.0 — 11. august 2026
+
+- **Nu kan I knytte arkets varer til en stregkode.** Det er dét, der
+  gør de 583 rækker til rigtige varer: uden stregkode kan en vare
+  aldrig blive grøn, for godkendelser hænger på stregkoden.
+- **To veje til det.** Står I med varen: scan den, og tryk »det er
+  denne vare« på linjen, der siger, den ligner noget fra listen.
+  Sidder I derhjemme med listen: tryk »knyt stregkode« ved en vare, og
+  scan den — så husker appen, hvad I var i gang med.
+- Når en vare er knyttet, er den ÉN linje i listen med sin egen dom,
+  arkets hylde og butik. Knytningen er ikke en godkendelse: varen
+  bliver først grøn, når I bekræfter den mod emballagen som altid.
+- Fortrudt? »Fjern koblingen« sætter rækken tilbage på listen.
+
 ## 0.12.0 — 11. august 2026
 
 - **Én liste med hylder — ikke to lister længere.** Varerne fra

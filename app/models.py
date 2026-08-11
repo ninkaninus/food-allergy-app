@@ -253,6 +253,11 @@ class ImportedProduct(Base):
     # valideret_mod siger, hvad familiens validering betød.
     valideret: Mapped[bool] = mapped_column(Boolean, default=True)
     valideret_mod: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # Stregkoden, når I har knyttet arkets række til en rigtig vare.
+    # DET er dét, der giver rækken værdi: uden EAN kan den aldrig bære en
+    # dom, for domme hænger på (EAN, allergen). Koblingen er jeres eget
+    # arbejde og sættes kun af et menneske — se POST /api/liste/{id}/stregkode.
+    ean: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     kilde: Mapped[str] = mapped_column(String(120), default="regneark")
     imported_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
 

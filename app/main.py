@@ -89,7 +89,9 @@ def _ord_maengde(*tekster: str | None) -> set[str]:
     return ud
 
 
-def _gammel_liste_hint(db: Session, hh_id: int, name: str | None, brand: str | None) -> list[dict]:
+def _gammel_liste_hint(
+    db: Session, hh_id: int, name: str | None, brand: str | None, ean: str | None = None
+) -> list[dict]:
     """
     Ligner den scannede vare noget fra den importerede godkendt-liste?
 
@@ -97,13 +99,36 @@ def _gammel_liste_hint(db: Session, hh_id: int, name: str | None, brand: str | N
     HINT ("I har haft den på jeres liste — bekræft mod emballagen"),
     aldrig en dom. Listen har ingen EAN, så navne er alt, vi har.
     """
+    # Er rækken allerede knyttet til netop denne vare, er det ikke et gæt
+    # længere — så vis den, og kun den.
+    if ean:
+        bundet = db.scalar(
+            select(ImportedProduct).where(
+                ImportedProduct.household_id == hh_id, ImportedProduct.ean == ean
+            )
+        )
+        if bundet is not None:
+            return [{
+                "id": bundet.id,
+                "navn": bundet.navn,
+                "producent": bundet.producent,
+                "butik": bundet.butik,
+                "kategori": bundet.kategori,
+                "valideret_mod": bundet.valideret_mod,
+                "ean": bundet.ean,
+            }]
+
     maal = _ord_maengde(name, brand)
     if not maal:
         return []
     brand_ord = _ord_maengde(brand)
     kandidater: list[tuple[int, ImportedProduct]] = []
     for ip in db.scalars(
-        select(ImportedProduct).where(ImportedProduct.household_id == hh_id)
+        select(ImportedProduct).where(
+            ImportedProduct.household_id == hh_id,
+            # rækker, der er knyttet til en anden vare, er ikke kandidater
+            ImportedProduct.ean.is_(None),
+        )
     ):
         faelles = maal & _ord_maengde(ip.navn, ip.producent)
         staerk = len(faelles) >= 2 or (
@@ -116,11 +141,13 @@ def _gammel_liste_hint(db: Session, hh_id: int, name: str | None, brand: str | N
     kandidater.sort(key=lambda t: -t[0])
     return [
         {
+            "id": ip.id,
             "navn": ip.navn,
             "producent": ip.producent,
             "butik": ip.butik,
             "kategori": ip.kategori,
             "valideret_mod": ip.valideret_mod,
+            "ean": ip.ean,
         }
         for _, ip in kandidater[:3]
     ]
@@ -433,7 +460,7 @@ async def scan(
         "found": True,
         "source": source,
         "result": result,
-        "gammel_liste": _gammel_liste_hint(db, hh.id, product.name, product.brand),
+        "gammel_liste": _gammel_liste_hint(db, hh.id, product.name, product.brand, ean),
         "product": {
             "name": product.name,
             "brand": product.brand,
@@ -669,6 +696,67 @@ def ingredient_suggest(q: str, db: Session = Depends(get_session)):
     return ix.suggest(db, q)
 
 
+class KoblingIn(BaseModel):
+    ean: str | None = None      # None = fjern koblingen igen
+
+
+@app.post("/api/liste/{ip_id}/stregkode")
+async def kobl_stregkode(
+    ip_id: int,
+    body: KoblingIn,
+    _: User = Depends(require_curator),
+    db: Session = Depends(get_session),
+):
+    """
+    Knyt en række fra det gamle ark til en rigtig stregkode.
+
+    Det er dét, der giver arkets 583 rækker værdi: uden EAN kan de aldrig
+    bære en dom, for domme hænger på (EAN, allergen). Efter koblingen er
+    varen ÉN linje i listen, med arkets hylde og butik og varens egen dom.
+
+    Koblingen er IKKE en dom og gør ikke noget grønt. Arket siger kun, at
+    I engang har haft varen på listen; farven kommer stadig fra motoren
+    eller fra en bekræftelse mod emballagen. Derfor kræver den login som
+    de øvrige skrivninger, men den rører ikke `verdict`-tabellen.
+    """
+    hh = default_household(db)
+    ip = db.get(ImportedProduct, ip_id)
+    if ip is None or ip.household_id != hh.id:
+        raise HTTPException(404, "ukendt række på listen")
+
+    if body.ean is None:
+        ip.ean = None
+        db.commit()
+        return {"ok": True, "ean": None}
+
+    ean = "".join(ch for ch in body.ean if ch.isdigit())
+    if len(ean) < 8:
+        raise HTTPException(400, "stregkoden ser ikke rigtig ud")
+
+    optaget = db.scalar(
+        select(ImportedProduct).where(
+            ImportedProduct.household_id == hh.id,
+            ImportedProduct.ean == ean,
+            ImportedProduct.id != ip.id,
+        )
+    )
+    if optaget is not None:
+        raise HTTPException(
+            409, f"Stregkoden er allerede knyttet til «{optaget.navn}» på listen."
+        )
+
+    # Kender vi ikke varen, så hent den — ellers står koblingen til en
+    # stregkode, listen ikke kan vise noget om. Kender vi den allerede
+    # (I har lige scannet den), skal koblingen ikke vente på OFF, og den
+    # skal heller ikke fejle, hvis OFF er nede: rækken er jeres eget
+    # arbejde, ikke deres data.
+    if db.get(Product, ean) is None:
+        await _ensure_product(db, ean)
+    ip.ean = ean
+    db.commit()
+    return {"ok": True, "ean": ean, "navn": ip.navn}
+
+
 @app.get("/api/soeg")
 def soeg(
     q: str = "",
@@ -737,7 +825,10 @@ def soeg(
         select(ImportedProduct).where(ImportedProduct.household_id == hh.id)
     ))
     ordindeks: dict[str, list[ImportedProduct]] = {}
+    pr_ean: dict[str, ImportedProduct] = {}
     for ip in liste:
+        if ip.ean:
+            pr_ean[ip.ean] = ip     # knyttet af et menneske — det slår alle gæt
         for w in _ord_maengde(ip.navn, ip.producent):
             ordindeks.setdefault(w, []).append(ip)
 
@@ -745,7 +836,12 @@ def soeg(
     brugt: set[int] = set()          # liste-rækker, der er slået sammen med en scannet vare
     for p in db.scalars(select(Product)):
         rows, verdicts, stale = _verdict_rows(db, hh.id, p, slugs, domme.get(p.ean, {}))
-        ip, samme_vare = _match_liste(p.name, p.brand, ordindeks)
+        ip = pr_ean.get(p.ean)
+        samme_vare = ip is not None
+        if ip is None:
+            # Ingen kobling endnu — så må navnene gøre arbejdet, med de to
+            # tærskler i `_match_liste`.
+            ip, samme_vare = _match_liste(p.name, p.brand, ordindeks)
         if samme_vare:
             brugt.add(ip.id)      # kun ved sikkert match — ellers taber vi en række
         kandidater.append({
@@ -769,7 +865,8 @@ def soeg(
         if ip.id in brugt:
             continue             # står allerede i listen som scannet vare
         kandidater.append({
-            "ean": None,
+            "ean": ip.ean,       # kendt stregkode, men varen er ikke hentet endnu
+            "liste_id": ip.id,
             "navn": ip.navn,
             "maerke": ip.producent,
             "billede": None,

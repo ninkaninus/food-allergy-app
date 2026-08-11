@@ -62,6 +62,26 @@ def client():
     return TestClient(app)
 
 
+@pytest.fixture(scope="module")
+def auth(client):
+    """Indlogget klient — koblingen er en skrivning og kræver login."""
+    from app.auth import hash_password
+    from app.db import SessionLocal, default_household
+    from app.models import User
+
+    pw = "korrekt-hest-batteri-haefteklamme"
+    with SessionLocal() as db:
+        hh = default_household(db)
+        if not db.query(User).count():
+            db.add(User(household_id=hh.id, email="w@example.dk", name="William",
+                        password_hash=hash_password(pw), role="admin", source="local"))
+            db.commit()
+    c = TestClient(app)
+    r = c.post("/api/auth/login", json={"email": "w@example.dk", "password": pw})
+    assert r.status_code == 200, r.text
+    return c
+
+
 def _hent(client, **params):
     r = client.get("/api/soeg", params={"allergens": "maelkeprotein", **params})
     assert r.status_code == 200
@@ -223,3 +243,75 @@ def test_grupper_er_hylder_med_antal(client):
     broed = next(g for g in grupper if g["navn"] == "Brød")
     assert broed["antal"] == len(broed["varer"]) or len(broed["varer"]) == 6
     assert all(v["kategori"] == "Brød" for v in broed["varer"])
+
+
+# --- kobling til stregkode: dét, der giver arkets rækker værdi -------------
+
+def test_kobling_kraever_login(client):
+    from app.db import SessionLocal, default_household
+    from app.models import ImportedProduct
+    with SessionLocal() as db:
+        ip = db.query(ImportedProduct).filter(
+            ImportedProduct.navn == "Listepålæg Skinke").one()
+        ip_id = ip.id
+    r = client.post(f"/api/liste/{ip_id}/stregkode", json={"ean": "5799990000009"})
+    assert r.status_code in (401, 403)
+
+
+def test_koblet_raekke_bliver_een_linje_med_dom(client, auth):
+    """Efter koblingen er arkets række og den scannede vare samme linje —
+    og dommen er stadig motorens, ikke arkets."""
+    from app.db import SessionLocal, default_household
+    from app.matcher import ingredients_hash
+    from app.models import ImportedProduct, Product
+
+    ean = "5799990000010"
+    with SessionLocal() as db:
+        hh = default_household(db)
+        t = "Svinekød, salt, mælkeprotein"
+        db.add(Product(ean=ean, name="Helt Andet Navn", brand="Ukendt",
+                       ingredients_text=t, ingredients_hash=ingredients_hash(t)))
+        ip = ImportedProduct(household_id=hh.id, kategori="Pålæg",
+                             navn="Arkets Skinke", producent="Slagteren", butik="Netto")
+        db.add(ip)
+        db.commit()
+        ip_id = ip.id
+
+    r = auth.post(f"/api/liste/{ip_id}/stregkode", json={"ean": ean})
+    assert r.status_code == 200, r.text
+
+    traef = [v for v in _hent(client, q="helt andet navn")]
+    assert len(traef) == 1
+    v = traef[0]
+    assert v["ean"] == ean and v["paa_listen"] is True
+    assert v["kategori"] == "Pålæg" and v["butik"] == "Netto"
+    # koblingen er IKKE en dom — mælkeprotein står stadig i teksten
+    assert v["status"] == "unsafe"
+
+    # og arkets række dukker ikke op som sin egen linje mere
+    assert "Arkets Skinke" not in {x["navn"] for x in _hent(client, q="arkets skinke")}
+
+
+def test_samme_stregkode_kan_ikke_bruges_to_gange(client, auth):
+    from app.db import SessionLocal, default_household
+    from app.models import ImportedProduct
+    with SessionLocal() as db:
+        hh = default_household(db)
+        ip = ImportedProduct(household_id=hh.id, navn="En Anden Vare", kategori="Diverse")
+        db.add(ip)
+        db.commit()
+        ip_id = ip.id
+    r = auth.post(f"/api/liste/{ip_id}/stregkode", json={"ean": "5799990000010"})
+    assert r.status_code == 409
+    assert "Arkets Skinke" in r.json()["detail"]
+
+
+def test_kobling_kan_fjernes_igen(client, auth):
+    from app.db import SessionLocal
+    from app.models import ImportedProduct
+    with SessionLocal() as db:
+        ip = db.query(ImportedProduct).filter(
+            ImportedProduct.navn == "Arkets Skinke").one()
+        ip_id = ip.id
+    assert auth.post(f"/api/liste/{ip_id}/stregkode", json={"ean": None}).status_code == 200
+    assert "Arkets Skinke" in {v["navn"] for v in _hent(client, q="arkets skinke")}
