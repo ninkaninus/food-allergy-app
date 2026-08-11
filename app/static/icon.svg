@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AllergiScan">
+  <!-- Stregkode på mørk baggrund med rød scanlinje — appens farver fra index.html -->
+  <rect width="64" height="64" rx="7" fill="#12181C"/>
+  <g fill="#E4E9EC">
+    <rect x="13" y="14" width="4" height="36"/>
+    <rect x="19" y="14" width="2" height="36"/>
+    <rect x="24" y="14" width="5" height="36"/>
+    <rect x="31" y="14" width="2" height="36"/>
+    <rect x="36" y="14" width="3" height="36"/>
+    <rect x="42" y="14" width="2" height="36"/>
+    <rect x="47" y="14" width="4" height="36"/>
+  </g>
+  <rect x="6" y="29.5" width="52" height="5" rx="2.5" fill="#C2251B"/>
+</svg>

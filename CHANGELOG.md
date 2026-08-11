@@ -5,6 +5,11 @@ Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
 ## 0.9.0 — 11. august 2026
 
+- **Filtrér-fanen kan nu gennemse jeres scannede varer.** Søg på fx
+  »brød« og se alt brød, I har scannet — og skift mellem *Alle*,
+  *Kun sikre* (dem et menneske har bekræftet mod emballagen), *Ikke
+  tilladt* og *Skal tjekkes*. Er en godkendt vares opskrift ændret
+  siden, står den som »opskrift ændret« og tæller ikke som sikker.
 - **Jeres gamle godkendt-liste er nu i appen.** Regnearket (583 varer)
   kan importeres med én kommando og søges under Filtrér-fanen —
   kategori, producent, butik og ✓ for de validerede følger med.
