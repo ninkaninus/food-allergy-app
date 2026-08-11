@@ -46,6 +46,9 @@ services:
       CF_ACCESS_TEAM_DOMAIN: "${CF_ACCESS_TEAM_DOMAIN:-}"
       CF_ACCESS_AUD: "${CF_ACCESS_AUD:-}"
       CF_ACCESS_ADMINS: "${CF_ACCESS_ADMINS:-}"
+      # Google Sheets-link til den gamle godkendt-liste, så
+      # `python -m app.cli import` kan hente den selv.
+      LISTE_URL: "${LISTE_URL:-}"
 
   # Ingress uden åbne porte. Se deploy/cloudflared/README.md — tunnellen
   # giver også HTTPS, hvilket kameraet KRÆVER: getUserMedia virker ikke

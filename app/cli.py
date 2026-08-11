@@ -10,7 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import getpass
+import os
+import re
 import sys
+import tempfile
+
+import httpx
 
 from sqlalchemy import create_engine, func, select, text
 
@@ -59,20 +64,64 @@ def reindex() -> None:
     print(f"Genindekserede {n} varer.")
 
 
-def import_liste(fil: str) -> None:
+def _eksport_url(kilde: str) -> str:
+    """Et Google Sheets-link oversættes til dets xlsx-eksport; alle andre
+    URL'er bruges som de er."""
+    m = re.match(r"https?://docs\.google\.com/spreadsheets/d/([\w-]+)", kilde)
+    if m:
+        return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=xlsx"
+    return kilde
+
+
+def _hent_liste(url: str) -> str:
+    """Henter regnearket til en midlertidig fil og returnerer stien.
+    Kræver at arket er delt med 'alle med linket kan se'."""
+    r = httpx.get(_eksport_url(url), follow_redirects=True, timeout=120)
+    r.raise_for_status()
+    if not r.content.startswith(b"PK"):  # xlsx er et zip-arkiv
+        sys.exit(
+            "Det hentede er ikke en xlsx-fil — er arket delt med "
+            "'alle med linket kan se'? (Google viser ellers en loginside.)"
+        )
+    f = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+    f.write(r.content)
+    f.close()
+    return f.name
+
+
+VALIDERET_MOD = "æg, mælk, tomat og banan"
+
+
+def import_liste(kilde: str | None = None, valideret_mod: str | None = None) -> None:
     """
     Importerer jeres gamle godkendt-liste fra regnearket (xlsx).
+
+    Kilden kan være en lokal fil ELLER en URL — et Google Sheets-link
+    hentes selv (kræver 'alle med linket kan se'). Uden argument bruges
+    LISTE_URL fra miljøet (.env), så genimport er én kommando.
+
+    ALLE varer på listen var valideret, før de kom ind i regnearket —
+    uden æg, mælk, tomat og banan. Arkets "Valideret"-kolonne er et dødt
+    felt og ignoreres. Betydningen kan overstyres med andet argument.
 
     Arket har ingen EAN-koder, så rækkerne bliver IKKE til domme — de
     lander i en separat opslagsliste, som appen søger i og viser som
     hint ved scanning. Hver vare bliver først grøn, når den scannes og
     bekræftes mod den fysiske emballage, som alle andre.
 
-    Forventer kolonneoverskrifter i første række pr. ark: Beskrivelse,
-    Producent, Butik, Link, Valideret (x = ja). Arket 'MasterData'
-    springes over. Genimport udskifter hele listen — idempotent.
+    Genimport udskifter hele listen — tabellen ejes af importen og
+    genskabes hver gang, så også skemaændringer heler sig selv.
     """
     from openpyxl import load_workbook
+
+    kilde = kilde or os.getenv("LISTE_URL")
+    if not kilde:
+        sys.exit(
+            "Angiv en fil eller URL — eller sæt LISTE_URL i .env til "
+            "regnearkets Google Sheets-link, så husker kommandoen den selv."
+        )
+    valideret_mod = valideret_mod or VALIDERET_MOD
+    fil = _hent_liste(kilde) if "://" in kilde else kilde
 
     init_db()
     wb = load_workbook(fil, read_only=True, data_only=True)
@@ -107,22 +156,23 @@ def import_liste(fil: str) -> None:
                 link=felt(row, "link"),
                 erstatning_for=felt(row, "bruges  fx som erstatning for")
                                or felt(row, "bruges fx som erstatning for"),
-                valideret=felt(row, "valideret") is not None,
+                valideret=True,
+                valideret_mod=valideret_mod,
             ))
+
+    # Tabellen ejes af importen og indeholder kun importerede rækker —
+    # genskab den, så nye kolonner ikke kræver håndholdt migrering.
+    from .db import engine
+    tabel = ImportedProduct.__table__
+    tabel.drop(engine, checkfirst=True)
+    tabel.create(engine)
 
     with SessionLocal() as db:
         hh = default_household(db)
-        udskiftet = (
-            db.query(ImportedProduct)
-            .filter(ImportedProduct.household_id == hh.id)
-            .delete()
-        )
         for r in rows:
             db.add(ImportedProduct(household_id=hh.id, **r))
         db.commit()
-    valideret = sum(r["valideret"] for r in rows)
-    print(f"Importerede {len(rows)} varer ({valideret} markeret valideret; "
-          f"{udskiftet} gamle rækker udskiftet).")
+    print(f"Importerede {len(rows)} varer — alle bekræftet uden {valideret_mod}.")
 
 
 def migrate(kilde: str, maal: str | None = None) -> None:
@@ -187,6 +237,6 @@ if __name__ == "__main__":
         import_liste(*sys.argv[2:])
     else:
         sys.exit(
-            "Brug: python -m app.cli "
-            "[adduser EMAIL NAVN [ROLLE] | reindex | migrate KILDE [MÅL] | import FIL.xlsx]"
+            "Brug: python -m app.cli [adduser EMAIL NAVN [ROLLE] | reindex "
+            "| migrate KILDE [MÅL] | import [FIL.xlsx eller URL]]"
         )

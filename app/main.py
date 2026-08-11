@@ -120,7 +120,7 @@ def _gammel_liste_hint(db: Session, hh_id: int, name: str | None, brand: str | N
             "producent": ip.producent,
             "butik": ip.butik,
             "kategori": ip.kategori,
-            "valideret": ip.valideret,
+            "valideret_mod": ip.valideret_mod,
         }
         for _, ip in kandidater[:3]
     ]
@@ -817,12 +817,14 @@ def gammel_liste(q: str = "", db: Session = Depends(get_session)):
     ql = q.strip().lower()
     ud = []
     antal = 0
+    valideret_mod = None
     for ip in db.scalars(
         select(ImportedProduct)
         .where(ImportedProduct.household_id == hh.id)
         .order_by(ImportedProduct.kategori, ImportedProduct.navn)
     ):
         antal += 1
+        valideret_mod = valideret_mod or ip.valideret_mod
         blob = " ".join(
             filter(None, [ip.navn, ip.producent, ip.butik, ip.kategori])
         ).lower()
@@ -834,9 +836,8 @@ def gammel_liste(q: str = "", db: Session = Depends(get_session)):
                 "producent": ip.producent,
                 "butik": ip.butik,
                 "kategori": ip.kategori,
-                "valideret": ip.valideret,
             })
-    return {"i_alt": antal, "varer": ud}
+    return {"i_alt": antal, "varer": ud, "valideret_mod": valideret_mod}
 
 
 @app.get("/api/version")

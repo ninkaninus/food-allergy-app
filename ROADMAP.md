@@ -39,9 +39,12 @@ der skal fikses.
 Gjort — men anderledes end planlagt, for arket viste sig ikke at have
 EAN-koder, og domme hænger på (EAN, allergen). I stedet:
 
-- [x] `python -m app.cli import <fil.xlsx>` læser arket (583 varer, alle
-      kategoriark, `Valideret`-kolonnen bevaret) ind i en separat
-      opslagsliste uden domme
+- [x] `python -m app.cli import [fil-eller-url]` læser arket (583 varer,
+      alle kategoriark) ind i en separat opslagsliste uden domme. Med
+      `LISTE_URL` i `.env` henter den selv nyeste udgave fra Google
+      Sheets. Alle varer regnes som bekræftet uden æg, mælk, tomat og
+      banan — det var kriteriet for at komme på listen; arkets gamle
+      Valideret-kolonne ignoreres
 - [x] Listen er søgbar under Filtrér-fanen, og ved scanning vises et hint,
       når varen ligner noget fra listen — "bekræft stadig mod emballagen"
 - [x] Hver vare graduerer til en rigtig dom, første gang I scanner og

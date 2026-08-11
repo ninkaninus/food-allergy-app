@@ -229,8 +229,8 @@ footer a{color:var(--muted)}
       <div class="acts" style="padding:12px 0 0">
         <button class="btn ghost" id="listeGo">Søg</button>
       </div>
-      <p class="hint">Importeret fra jeres regneark — uden stregkoder, så ingen grønne
-        domme herfra. Scan varen, og bekræft mod emballagen som altid.</p>
+      <p class="hint" id="listeHint">Importeret fra jeres regneark — uden stregkoder, så ingen
+        grønne domme herfra. Scan varen, og bekræft mod emballagen som altid.</p>
       <ul class="hits" id="listeHits"></ul>
     </div>
 
@@ -392,7 +392,8 @@ function render(d){
        <p class="meta">${esc(p.brand || '—')}${p.quantity ? ' · '+esc(p.quantity) : ''}</p>
        <p class="meta ean">${esc(d.ean)}</p>
        ${gl ? `<p class="meta">&#128203; Ligner <b>${esc(gl.navn)}</b>${gl.producent ? ' ('+esc(gl.producent)+')' : ''}
-         fra jeres gamle liste — bekræft stadig mod emballagen.</p>` : ''}</div>`;
+         fra jeres gamle liste${gl.valideret_mod ? ' — bekræftet uden '+esc(gl.valideret_mod)+',' : ' —'}
+         men tjek stadig emballagen.</p>` : ''}</div>`;
 
   $('#rows').innerHTML = (d.allergens||[]).map(a => `
     <li><span class="dot ${a.state}"></span>
@@ -648,10 +649,13 @@ $('#sugGo').onclick = async () => {
 $('#listeGo').onclick = async () => {
   const q = $('#listeQ').value.trim();
   const d = await (await fetch('/api/liste?q=' + encodeURIComponent(q))).json();
+  if(d.valideret_mod)
+    $('#listeHint').textContent = `Alle varer på listen er bekræftet uden ${d.valideret_mod} — `
+      + `men uden stregkoder, så ingen grønne domme herfra. Scan varen, og bekræft mod emballagen.`;
   $('#listeHits').innerHTML = d.varer.length
     ? d.varer.map(v => `<li><span><b>${esc(v.navn)}</b>
         <span class="sub"><br>${esc(v.producent || '—')} · ${esc(v.butik || '')}</span></span>
-        <span class="sub">${esc(v.kategori || '')}${v.valideret ? ' ✓' : ''}</span></li>`).join('')
+        <span class="sub">${esc(v.kategori || '')}</span></li>`).join('')
     : (d.i_alt
         ? '<li class="none">Ingen træf blandt de ' + d.i_alt + ' varer på listen.</li>'
         : '<li class="none">Ingenting importeret endnu — se README for import-kommandoen.</li>');

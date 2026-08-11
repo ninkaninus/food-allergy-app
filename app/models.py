@@ -248,7 +248,11 @@ class ImportedProduct(Base):
     butik: Mapped[str | None] = mapped_column(String(300), nullable=True)
     link: Mapped[str | None] = mapped_column(Text, nullable=True)
     erstatning_for: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    valideret: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Hele listen var valideret, FØR den kom ind i regnearket — arkets
+    # "Valideret"-kolonne er et dødt felt og ignoreres ved import.
+    # valideret_mod siger, hvad familiens validering betød.
+    valideret: Mapped[bool] = mapped_column(Boolean, default=True)
+    valideret_mod: Mapped[str | None] = mapped_column(String(300), nullable=True)
     kilde: Mapped[str] = mapped_column(String(120), default="regneark")
     imported_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
 

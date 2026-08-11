@@ -65,10 +65,11 @@ def test_import_og_genimport(tmp_path):
         assert len(rows) == 3
         digestive = next(r for r in rows if r.navn == "Digestive")
         assert digestive.producent == "Rema 1000"
-        assert digestive.valideret is True
         assert digestive.kategori == "Kiks P"
-        marie = next(r for r in rows if r.navn == "Marie kiks")
-        assert marie.valideret is False
+        # Arkets "Valideret"-kolonne er et dødt felt: ALT på listen var
+        # valideret (uden æg, mælk, tomat og banan), før det kom ind.
+        assert all(r.valideret for r in rows)
+        assert all(r.valideret_mod == "æg, mælk, tomat og banan" for r in rows)
         smoer = next(r for r in rows if r.navn == "Block (Smør)")
         assert smoer.erstatning_for == "Smør"
         assert not any(r.kategori == "MasterData" for r in rows)
@@ -84,6 +85,43 @@ def test_import_skaber_ingen_domme(tmp_path):
     with SessionLocal() as db:
         efter = db.scalar(select(func.count()).select_from(Verdict))
     assert efter == foer
+
+
+def test_google_link_oversaettes_til_eksport_url():
+    from app.cli import _eksport_url
+    url = "https://docs.google.com/spreadsheets/d/1NrjeAbC_-xyz/edit?usp=sharing"
+    assert _eksport_url(url) == (
+        "https://docs.google.com/spreadsheets/d/1NrjeAbC_-xyz/export?format=xlsx"
+    )
+    # andre URL'er og lokale stier røres ikke
+    assert _eksport_url("https://x.dk/liste.xlsx") == "https://x.dk/liste.xlsx"
+
+
+def test_import_fra_url_henter_selv(tmp_path, monkeypatch):
+    """URL-kilder hentes med httpx; en HTML-loginside afvises tydeligt."""
+    import app.cli as cli
+
+    xlsx = open(_ark(tmp_path), "rb").read()
+
+    class Svar:
+        def __init__(self, content): self.content = content
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(cli.httpx, "get", lambda *a, **k: Svar(xlsx))
+    init_db()
+    cli.import_liste("https://docs.google.com/spreadsheets/d/abc123/edit")
+    with SessionLocal() as db:
+        hh = default_household(db)
+        antal = db.scalar(
+            select(func.count()).select_from(ImportedProduct)
+            .where(ImportedProduct.household_id == hh.id)
+        )
+    assert antal == 3
+
+    import pytest as _pytest
+    monkeypatch.setattr(cli.httpx, "get", lambda *a, **k: Svar(b"<html>login"))
+    with _pytest.raises(SystemExit):
+        cli.import_liste("https://docs.google.com/spreadsheets/d/abc123/edit")
 
 
 def test_hint_matcher_paa_navn_og_producent(tmp_path):

@@ -3,6 +3,17 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.10.0 — 11. august 2026
+
+- **Importen henter selv regnearket.** Sæt `LISTE_URL` i `.env` til
+  jeres Google Sheets-link én gang — derefter er genimport bare
+  `python -m app.cli import`, ingen filer at downloade og kopiere.
+- **Hele listen tæller nu som bekræftet** — uden æg, mælk, tomat og
+  banan, sådan som den faktisk blev valideret, før den kom ind i
+  regnearket. Både søgningen og scan-hintet siger det nu: »bekræftet
+  uden æg, mælk, tomat og banan — men tjek stadig emballagen«.
+  (Arkets gamle Valideret-kolonne ignoreres.)
+
 ## 0.9.0 — 11. august 2026
 
 - **Filtrér-fanen kan nu gennemse jeres scannede varer.** Søg på fx
