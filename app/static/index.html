@@ -582,7 +582,7 @@ function visFotos(d){
   gl.innerHTML = ordre.map(k => `
     <button class="foto" data-foto="${k}" data-url="${esc(f[k].url)}"
       title="Taget ${esc(f[k].taget_at.replace('T',' '))}${f[k].taget_af ? ' af '+esc(f[k].taget_af) : ''}">
-      <img src="${esc(f[k].url)}" alt="${navne[k]}" loading="lazy">
+      <img src="${esc(f[k].mini_url || f[k].url)}" alt="${navne[k]}" loading="lazy">
       <span class="lab">${navne[k]}</span></button>`).join('');
   gl.querySelectorAll('.foto').forEach(b => b.onclick = () => aabnLup(
     b.dataset.url, `${navne[b.dataset.foto]} · ${f[b.dataset.foto].taget_at.replace('T',' ')}`));

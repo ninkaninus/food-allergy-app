@@ -67,20 +67,40 @@ def test_upload_kraever_login(client):
     assert r.status_code in (401, 403)
 
 
-def test_foto_gemmes_skaleres_og_kan_hentes(auth, client):
+def test_deklaration_beholder_sin_oploesning(auth, client):
+    """Deklarationen skal kunne LÆSES igen — den må ikke skaleres ned til
+    forsidens størrelse. 2400 px er under loftet og skal overleve."""
     r = auth.post(f"/api/products/{EAN}/foto?slags=deklaration",
                   files={"image": ("d.jpg", _jpeg(), "image/jpeg")})
     assert r.status_code == 200, r.text
     fotos = r.json()["fotos"]
-    assert "deklaration" in fotos
-    # 2400 px ned til 1600 — en deklaration skal kunne læses, ikke fylde disken
-    assert max(fotos["deklaration"]["bredde"], fotos["deklaration"]["hoejde"]) == 1600
+    assert max(fotos["deklaration"]["bredde"], fotos["deklaration"]["hoejde"]) == 2400
 
     # åben læsning, som resten af appen
     h = client.get(f"/api/products/{EAN}/foto/deklaration")
     assert h.status_code == 200
     assert h.headers["content-type"] == "image/jpeg"
-    assert Image.open(io.BytesIO(h.content)).size[0] == 1600
+    assert Image.open(io.BytesIO(h.content)).size[0] == 2400
+
+
+def test_forsiden_skaleres_ned(auth):
+    """Forsiden skal kun kunne genkendes, ikke læses."""
+    r = auth.post(f"/api/products/{EAN}/foto?slags=front",
+                  files={"image": ("f.jpg", _jpeg(), "image/jpeg")})
+    f = r.json()["fotos"]["front"]
+    assert max(f["bredde"], f["hoejde"]) == 1600
+
+
+def test_miniature_er_lille_saa_listen_ikke_haenter_fuldbilledet(auth, client):
+    """Uden miniaturen ville et tryk på en vare hente flere MB over
+    mobildata, netop mens man står i butikken."""
+    auth.post(f"/api/products/{EAN}/foto?slags=deklaration",
+              files={"image": ("d.jpg", _jpeg(), "image/jpeg")})
+    mini = client.get(f"/api/products/{EAN}/foto/deklaration?mini=1")
+    fuld = client.get(f"/api/products/{EAN}/foto/deklaration")
+    assert mini.status_code == 200
+    assert max(Image.open(io.BytesIO(mini.content)).size) == 480
+    assert len(mini.content) < len(fuld.content) / 4
 
 
 def test_ukendt_stregkode_faar_lov_at_have_billeder(auth):
@@ -110,7 +130,9 @@ def test_nyt_foto_erstatter_det_gamle(auth, client):
     # modulets egen TMP: i fuld kørsel er det et andet testmodul, der har
     # sat DATA_DIR først.
     from app.db import DATA_DIR
-    assert len(list((DATA_DIR / "billeder").glob(f"{EAN}_deklaration*"))) == 1
+    # fuld + miniature, og ikke mere end det
+    assert sorted(p.name for p in (DATA_DIR / "billeder").glob(f"{EAN}_deklaration*")) == [
+        f"{EAN}_deklaration.jpg", f"{EAN}_deklaration_mini.jpg"]
 
 
 def test_ugyldig_slags_og_sti_afvises(auth, client):
@@ -120,5 +142,8 @@ def test_ugyldig_slags_og_sti_afvises(auth, client):
 
 
 def test_foto_kan_slettes(auth, client):
+    from app.db import DATA_DIR
     assert auth.delete(f"/api/products/{EAN}/foto/front").status_code == 200
     assert client.get(f"/api/products/{EAN}/foto/front").status_code == 404
+    # også miniaturen — ellers ligger der forældede filer tilbage
+    assert not list((DATA_DIR / "billeder").glob(f"{EAN}_front*"))

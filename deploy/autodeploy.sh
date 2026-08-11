@@ -80,6 +80,8 @@ deploy() {
     local sha=$1
     run_git reset --hard --quiet "$sha"
     set_env APP_IMAGE "$IMAGE:sha-$sha"
+    # App og OCR-tjeneste ruller ud som ét par — samme commit, samme tag.
+    set_env OCR_IMAGE "$IMAGE-ocr:sha-$sha"
     docker compose up -d --quiet-pull
 }
 
@@ -128,8 +130,11 @@ main() {
 
     # Findes imaget for den ønskede commit? Ellers er CI ikke færdig (eller
     # testene fejlede), og så venter vi bare til næste kørsel.
-    if ! docker pull --quiet "$IMAGE:sha-$want" >/dev/null 2>&1; then
-        log "intet image for $want endnu — CI kører stadig eller fejlede; prøver igen senere"
+    # BEGGE images skal findes, ellers ville app og OCR kunne komme i
+    # utakt — appen ville køre ny kode mod en gammel OCR-tjeneste.
+    if ! docker pull --quiet "$IMAGE:sha-$want" >/dev/null 2>&1 \
+       || ! docker pull --quiet "$IMAGE-ocr:sha-$want" >/dev/null 2>&1; then
+        log "image(s) for $want mangler endnu — CI kører stadig eller fejlede; prøver igen senere"
         exit 0
     fi
 

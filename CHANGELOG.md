@@ -3,6 +3,18 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.15.0 — 11. august 2026
+
+- **Billeder af deklarationen gemmes nu i telefonens fulde opløsning.**
+  Før blev de skaleret ned, så det fineste tryk blev grødet, når man
+  forstørrede. Målt på et rigtigt foto: 3008×4000 i stedet for
+  1203×1600.
+- Forsidebilleder skaleres stadig ned — de skal kunne genkendes, ikke
+  læses.
+- **Listen henter kun små miniaturer** (~30 KB), så et tryk på en vare
+  ikke koster flere MB mobildata i butikken. Fuldbilledet hentes først,
+  når I forstørrer.
+
 ## 0.14.0 — 11. august 2026
 
 - **Nu kan I gemme billeder af varen** — både forsiden og

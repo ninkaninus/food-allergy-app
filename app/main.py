@@ -1018,6 +1018,20 @@ def product_filter(
 
 SLAGS = {"front": "Forside", "deklaration": "Deklaration"}
 
+# Deklarationen er dét, man skal kunne LÆSE igen — 6-punkts tryk på
+# krøllet folie. Den gemmes derfor tæt på telefonens egen opløsning og
+# uden farve-underprøvning (subsampling 0), som ellers smører netop de
+# tynde bogstavstreger ud. Forsiden skal kun kunne genkendes.
+# Et deklarationsfoto fylder ~2-4 MB; 583 varer bliver et par GB.
+FOTO_MAX = {
+    "front": int(os.getenv("FOTO_MAX_FRONT", "1600")),
+    "deklaration": int(os.getenv("FOTO_MAX_DEKLARATION", "4000")),
+}
+FOTO_KVALITET = {"front": 82, "deklaration": 94}
+# Miniaturen vises i listen. Uden den ville et tryk på en vare hente
+# fuldbilledet over mobildata, midt i Netto.
+MINI_MAX = 480
+
 
 def _billedmappe() -> Path:
     from .db import DATA_DIR
@@ -1045,8 +1059,10 @@ def _foto_svar(db: Session, hh_id: int, ean: str) -> dict:
             ProductPhoto.household_id == hh_id, ProductPhoto.product_ean == ean
         )
     ):
+        v = int(f.taget_at.timestamp())
         ud[f.slags] = {
-            "url": f"/api/products/{ean}/foto/{f.slags}?v={int(f.taget_at.timestamp())}",
+            "url": f"/api/products/{ean}/foto/{f.slags}?v={v}",
+            "mini_url": f"/api/products/{ean}/foto/{f.slags}?v={v}&mini=1",
             "taget_at": f.taget_at.isoformat(timespec="minutes"),
             "taget_af": f.taget_af,
             "bredde": f.bredde,
@@ -1075,19 +1091,24 @@ async def gem_foto(
 
     ean, slags = _rens(ean, slags)
     data = await image.read()
-    if len(data) > 12 * 1024 * 1024:
-        raise HTTPException(413, "Billedet er for stort (max 12 MB).")
+    if len(data) > 30 * 1024 * 1024:
+        raise HTTPException(413, "Billedet er for stort (max 30 MB).")
     try:
         img = Image.open(io.BytesIO(data))
         img = ImageOps.exif_transpose(img).convert("RGB")
     except Exception as e:
         raise HTTPException(400, f"Kunne ikke læse billedet: {e}")
 
-    # 1600 px er rigeligt til at læse en deklaration på en telefon, og
-    # holder 583 varer × 2 billeder nede i et par hundrede MB.
-    img.thumbnail((1600, 1600), Image.LANCZOS)
+    maks = FOTO_MAX[slags]
+    img.thumbnail((maks, maks), Image.LANCZOS)
     fil = f"{ean}_{slags}.jpg"
-    img.save(_billedmappe() / fil, "JPEG", quality=82, optimize=True)
+    mappe = _billedmappe()
+    img.save(mappe / fil, "JPEG", quality=FOTO_KVALITET[slags],
+             subsampling=0 if slags == "deklaration" else 2, optimize=True)
+
+    mini = img.copy()
+    mini.thumbnail((MINI_MAX, MINI_MAX), Image.LANCZOS)
+    mini.save(mappe / f"{ean}_{slags}_mini.jpg", "JPEG", quality=78, optimize=True)
 
     hh = default_household(db)
     if db.get(Product, ean) is None:
@@ -1113,7 +1134,7 @@ async def gem_foto(
 
 
 @app.get("/api/products/{ean}/foto/{slags}")
-def hent_foto(ean: str, slags: str, db: Session = Depends(get_session)):
+def hent_foto(ean: str, slags: str, mini: bool = False, db: Session = Depends(get_session)):
     """Åben læsning som resten — der er ingen personoplysninger i et
     billede af en pakke rugbrød."""
     ean, slags = _rens(ean, slags)
@@ -1125,7 +1146,12 @@ def hent_foto(ean: str, slags: str, db: Session = Depends(get_session)):
             ProductPhoto.slags == slags,
         )
     )
-    sti = _billedmappe() / f"{ean}_{slags}.jpg"
+    mappe = _billedmappe()
+    sti = mappe / f"{ean}_{slags}.jpg"
+    if mini:
+        lille = mappe / f"{ean}_{slags}_mini.jpg"
+        # Billeder gemt før miniaturerne fandtes har kun fuldudgaven.
+        sti = lille if lille.exists() else sti
     if f is None or not sti.exists():
         raise HTTPException(404, "intet billede")
     return FileResponse(sti, media_type="image/jpeg",
@@ -1151,7 +1177,9 @@ def slet_foto(
     if f is not None:
         db.delete(f)
         db.commit()
-    (_billedmappe() / f"{ean}_{slags}.jpg").unlink(missing_ok=True)
+    mappe = _billedmappe()
+    (mappe / f"{ean}_{slags}.jpg").unlink(missing_ok=True)
+    (mappe / f"{ean}_{slags}_mini.jpg").unlink(missing_ok=True)
     return {"ok": True}
 
 
@@ -1165,21 +1193,26 @@ async def ocr_declaration(
     forlader ikke serveren og bliver ikke gemt. Resultatet er et forslag,
     som skal rettes igennem i bekræftelsesskærmen.
     """
-    from .ocr import read_declaration
+    from .ocr_klient import laes_deklaration
 
     data = await image.read()
     if len(data) > 12 * 1024 * 1024:
         raise HTTPException(413, "Billedet er for stort (max 12 MB).")
-    res = read_declaration(data)
+    res = laes_deklaration(data)
     if not res.get("ok"):
         return res
 
-    # Under 45 % konfidens er "teksten" mest grafik-støj, og fuzzy-
-    # matchning på støj kan give falske røde forhåndskryds. Det lyder
-    # forsigtigt, men er det modsatte: et rødt kryds, der udspringer af
-    # vrøvl, lærer folk at ignorere de røde kryds. Intet forhåndstjek —
-    # mennesket læser selv, eller tager et nyt billede.
-    if res["confidence"] < 45:
+    # Porten mod falske røde kryds født af grafik-støj: et rødt kryds fra
+    # vrøvl lærer folk at ignorere de røde kryds.
+    #
+    # Den gælder KUN Tesseract-vejen. De to motorers konfidenstal betyder
+    # ikke det samme: målt på familiens fotos scorer OCR-tjenesten 96-98 %
+    # på alt — også det, Tesseract læste som volapyk — fordi tallet er
+    # tegngenkendelsens sikkerhed, ikke "læste jeg det rigtige". Til
+    # gengæld finder den slet ingen linjer i ren støj, og tom tekst sender
+    # klienten videre til Tesseract. Porten ville derfor aldrig udløses
+    # for tjenesten, og en fælles tærskel ville kun være til pynt.
+    if res.get("engine") != "rapidocr" and res["confidence"] < 45:
         res["allergens"] = []
         res["hint"] = (
             "Billedet er for utydeligt til automatisk tjek. Tag et nyt — "

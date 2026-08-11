@@ -317,6 +317,18 @@ def read_declaration(data: bytes, lang: str = "dan+eng") -> dict:
                 raw = rescue
                 mean_conf = rescue_conf
 
+    return efterbehandl(raw, mean_conf)
+
+
+def efterbehandl(raw: str, mean_conf: float) -> dict:
+    """
+    Rå OCR-tekst -> det, bekræftelsesskærmen skal bruge.
+
+    Deles af begge veje: Tesseract herover og OCR-containeren (se
+    ocr_klient.py). Al dansk-specifik logik — sektionsudklip og
+    oprydning — bor HER, ikke i OCR-tjenesten. Tjenesten leverer tegn;
+    betydning lægges på i appen, hvor matcheren også bor.
+    """
     section = clean(extract_section(raw))
     return {
         "ok": True,

@@ -49,6 +49,34 @@ services:
       # Google Sheets-link til den gamle godkendt-liste, så
       # `python -m app.cli import` kan hente den selv.
       LISTE_URL: "${LISTE_URL:-}"
+      # OCR-containeren. Svarer den ikke, falder appen tilbage til den
+      # indbyggede Tesseract-læsning — svagere, men appen dør ikke.
+      OCR_URL: "${OCR_URL:-http://ocr:8000}"
+    depends_on:
+      ocr:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+  # OCR i egen container: onnxruntime er native kode, og et segfault dér
+  # må ikke tage web-appen og databasen med sig. Modellerne (~800 MB)
+  # holdes samtidig ude af app-imaget, så udrulninger bliver ved med at
+  # være hurtige. Se ocr_service/main.py.
+  ocr:
+    build:
+      context: .
+      dockerfile: Dockerfile.ocr
+    image: "${OCR_IMAGE:-allergiscan-ocr:local}"
+    container_name: allergiscan-ocr
+    restart: unless-stopped
+    environment:
+      TZ: "${TZ:-Europe/Copenhagen}"
+      # Hold OCR fra at æde hele serveren under en scanning.
+      OMP_NUM_THREADS: "${OCR_THREADS:-4}"
+    deploy:
+      resources:
+        limits:
+          cpus: "${OCR_CPUS:-4}"
 
   # Ingress uden åbne porte. Se deploy/cloudflared/README.md — tunnellen
   # giver også HTTPS, hvilket kameraet KRÆVER: getUserMedia virker ikke
@@ -64,10 +92,18 @@ services:
       TZ: "${TZ:-Europe/Copenhagen}"
     depends_on: [allergiscan]
 
+  # Databasen i egen container. Data ligger på DIN disk via PGDATA_PATH —
+  # containeren kan smides væk, databasen kan ikke.
+  #
+  # Appen bruger den KUN hvis DATABASE_URL er sat; ellers kører den videre
+  # på SQLite-filen i /data. Skift kræver ét bevidst trin, fordi jeres
+  # domme skal flyttes med:
+  #   docker compose up -d postgres
+  #   docker compose run --rm allergiscan python -m app.cli migrate /data/allergiscan.db
+  # Se afsnittet om Postgres i deploy/UNRAID.md.
   postgres:
     image: postgres:17-alpine
     container_name: allergiscan-db
-    profiles: ["postgres"]
     restart: unless-stopped
     environment:
       POSTGRES_USER: allergiscan

@@ -143,6 +143,13 @@ ved med at være lille nok til at kopiere. Ét billede pr. (vare, slags);
 et nyt erstatter det gamle. Et foto er dokumentation, ikke bevis: det
 gør ingen vare grøn.
 
+Deklarationsfotos gemmes i op til 4000 px og JPEG q94 uden
+farve-underprøvning: de skal kunne LÆSES igen, og subsampling smører
+netop de tynde bogstavstreger ud. Forsiden nøjes med 1600 px. Hvert
+billede får en miniature (480 px) ved siden af — uden den ville listen
+hente flere MB fuldbillede over mobildata. Sletning skal tage begge
+filer. `FOTO_MAX_DEKLARATION`/`FOTO_MAX_FRONT` kan skrue på det.
+
 `imported_product.ean` er koblingen, der giver en række værdi: uden EAN kan
 den aldrig bære en dom. Den sættes kun af et menneske
 (`POST /api/liste/{id}/stregkode`, kræver login) og er **ikke** en dom — en

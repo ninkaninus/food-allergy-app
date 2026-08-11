@@ -55,4 +55,16 @@ jobs:
             ghcr.io/${{ github.repository }}:latest
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
+      # OCR-tjenesten er sit eget image med sine egne modeller. Samme
+      # sha-tag, så app og OCR altid ruller ud som ét par.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.ocr
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-ocr:sha-${{ github.sha }}
+            ghcr.io/${{ github.repository }}-ocr:latest
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
