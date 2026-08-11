@@ -52,7 +52,11 @@ def init_db() -> None:
             row.eu14 = bool(meta.get("eu14"))
             row.note = (meta.get("note") or "").strip() or None
 
+        # Allergen-rækkerne skal have id'er, før profilerne kan pege på dem.
+        db.flush()
+
         # Første husstand + profil, så appen er brugbar med det samme.
+        fresh: set[int] = set()
         if db.scalar(select(Household)) is None:
             hh = Household(
                 name=os.getenv("HOUSEHOLD_NAME", "Vores husstand"),
@@ -63,14 +67,35 @@ def init_db() -> None:
             prof = Profile(household_id=hh.id, name=os.getenv("PROFILE_NAME", "Barn"))
             db.add(prof)
             db.flush()
-            db.commit()
-            # Slå alle kendte allergener til som strict fra start.
-            for a in db.scalars(select(Allergen)).all():
-                db.add(
-                    ProfileAllergen(
-                        profile_id=prof.id, allergen_id=a.id, severity="strict"
+            fresh.add(prof.id)
+
+        # Et allergen uden ProfileAllergen-række er usynligt: list_profiles bygger
+        # listen derfra, så det kan hverken ses eller slås til. Udvides regelsættet,
+        # skal de nye altså op på de profiler, der allerede findes.
+        #
+        # Op, men ikke til. På en frisk profil slås alt til som hidtil; på en
+        # eksisterende er default `active=False`. Hvad barnet reagerer på, er
+        # forældrenes beslutning, ikke en bivirkning af et deploy — og en stribe
+        # nye advarsler, ingen har bedt om, koster den tillid appen lever af.
+        allergens = db.scalars(select(Allergen)).all()
+        for p in db.scalars(select(Profile)).all():
+            known = set(
+                db.scalars(
+                    select(ProfileAllergen.allergen_id).where(
+                        ProfileAllergen.profile_id == p.id
                     )
                 )
+            )
+            for a in allergens:
+                if a.id not in known:
+                    db.add(
+                        ProfileAllergen(
+                            profile_id=p.id,
+                            allergen_id=a.id,
+                            severity="strict",
+                            active=p.id in fresh,
+                        )
+                    )
         db.commit()
 
 
