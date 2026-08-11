@@ -29,6 +29,90 @@ MAX_SIDE = 3200          # samme normalisering som Tesseract-vejen i appen
 _engine = None
 
 
+def i_spalter(boxes, txts) -> list[str]:
+    """
+    Linjer i LÆSEREKKEFØLGE, ikke i højderækkefølge.
+
+    Etiketter har næsten altid flere spalter, og OCR'en returnerer
+    boksene sorteret efter position — så en tolinjers ingrediensliste i
+    venstre spalte bliver flettet med opbevaringsteksten i højre:
+
+        «Ingredienser:»            venstre
+        «højst +5 °C.»             HØJRE, flettet ind
+        «93 % grisekød, salt,»     venstre
+
+    Efter fletningen kan appen hverken finde begyndelsen eller slutningen
+    på ingredienslisten, og halvdelen af etiketten kommer med.
+
+    Spalterne findes som huller i boksenes x-midtpunkter. Skævt
+    fotograferede etiketter driver vandret ned ad billedet, så et fast
+    lodret snit dur ikke — men midtpunkterne klumper stadig, og hullet
+    mellem klumperne er stort i forhold til teksthøjden. Er der ikke et
+    tydeligt hul, er det én spalte, og rækkefølgen står som den er.
+    """
+    # boxes er et numpy-array; `not boxes` ville sammenligne elementvis.
+    if boxes is None or len(boxes) < 4 or len(boxes) != len(txts):
+        return list(txts)
+
+    linjer = []
+    for boks, txt in zip(boxes, txts):
+        pts = [(float(p[0]), float(p[1])) for p in boks]
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        # Linjehøjden er venstre kants længde, IKKE boksens højde. En skævt
+        # fotograferet etiket giver hældende bokse, hvis boksehøjde er
+        # dobbelt så stor som teksten — målt 103 px for en linje på 89.
+        (x0, y0), (_, _), (_, _), (x3, y3) = pts[0], pts[1], pts[2], pts[3]
+        hoejde = ((x3 - x0) ** 2 + (y3 - y0) ** 2) ** 0.5
+        linjer.append({
+            "txt": txt,
+            "midte": (min(xs) + max(xs)) / 2,
+            "y": min(ys),
+            "y2": max(ys),
+            "hoejde": hoejde or (max(ys) - min(ys)),
+        })
+
+    median_hoejde = sorted(l["hoejde"] for l in linjer)[len(linjer) // 2] or 1
+    bredde = max(l["midte"] for l in linjer) - min(l["midte"] for l in linjer)
+    # Et spaltehul er både bredt i forhold til teksten OG i forhold til
+    # etiketten. Begge krav skal med: kun det første splitter ernærings-
+    # tabellers etiket/værdi-par, kun det andet misser smalle etiketter.
+    graense = max(2.5 * median_hoejde, 0.12 * bredde)
+
+    def side_om_side(a: list[dict], b: list[dict]) -> bool:
+        """Rigtige spalter står ved siden af hinanden — altså overlapper
+        de lodret. Gør de ikke det, er det ét afsnit over et andet, og et
+        lodret snit ville stumpe teksten i stykker."""
+        a0, a1 = min(l["y"] for l in a), max(l["y2"] for l in a)
+        b0, b1 = min(l["y"] for l in b), max(l["y2"] for l in b)
+        overlap = max(0.0, min(a1, b1) - max(a0, b0))
+        mindste = min(a1 - a0, b1 - b0) or 1
+        return overlap / mindste >= 0.4
+
+    def del_op(gruppe: list[dict], dybde: int = 0) -> list[list[dict]]:
+        if dybde >= 2 or len(gruppe) < 6:      # højst tre spalter
+            return [gruppe]
+        efter_x = sorted(gruppe, key=lambda l: l["midte"])
+        bedst, bedst_hul = None, 0.0
+        for i in range(3, len(efter_x) - 2):   # mindst 3 linjer i hver
+            hul = efter_x[i]["midte"] - efter_x[i - 1]["midte"]
+            if hul > bedst_hul:
+                bedst, bedst_hul = i, hul
+        if bedst is None or bedst_hul < graense:
+            return [gruppe]
+        venstre, hoejre = efter_x[:bedst], efter_x[bedst:]
+        if not side_om_side(venstre, hoejre):
+            return [gruppe]
+        return del_op(venstre, dybde + 1) + del_op(hoejre, dybde + 1)
+
+    spalter = del_op(linjer)
+    spalter.sort(key=lambda s: min(l["midte"] for l in s))
+    ud = []
+    for spalte in spalter:
+        ud += [l["txt"] for l in sorted(spalte, key=lambda l: l["y"])]
+    return ud
+
+
 def engine():
     """Indlæses dovent: containeren skal svare på /healthz med det samme."""
     global _engine
@@ -85,7 +169,7 @@ async def ocr(image: UploadFile = File(...)):
         "ok": True,
         # Linjer adskilt med newline: appens sektionsudklip og oprydning
         # regner med linjeskift, præcis som Tesseracts output.
-        "text": "\n".join(res.txts),
+        "text": "\n".join(i_spalter(res.boxes, res.txts)),
         "confidence": round(100 * sum(scores) / len(scores), 1) if scores else 0.0,
         "linjer": len(res.txts),
         "engine": "rapidocr",

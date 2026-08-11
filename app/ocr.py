@@ -31,7 +31,21 @@ SECTION_MARKERS = [
 ]
 END_MARKERS = [
     "næringsindhold", "næringsdeklaration", "nutrition", "energi ",
-    "opbevares", "bedst før", "mindst holdbar", "nettovægt",
+    "opbevares", "opbevaring", "bedst før", "mindst holdbar", "nettovægt",
+    # alt herunder står efter ingredienslisten på danske etiketter
+    "opblanding", "tilberedning", "brugsanvisning", "serveringsforslag",
+    "produceret af", "produceret i", "importeret af", "distribueret af",
+    "emballagen", "sorteres som", "efter åbning",
+]
+
+# Sporadvarsler skal ALDRIG klippes væk, uanset hvor på etiketten de står.
+# De står tit efter en slutmarkør ("… (E 250). Kan indeholde spor af
+# pistacienødder og selleri." efter "Produceret af"), og under-advarsel er
+# den farlige retning. Derfor hentes de tilbage til sektionen.
+TRACE_PHRASES = [
+    "kan indeholde", "kan indeholde spor", "fremstillet på et anlæg",
+    "fremstillet på fabrik", "produceret på et anlæg", "hvor der også",
+    "may contain", "spor af",
 ]
 
 
@@ -217,33 +231,108 @@ def _osd_rotation(proc: Image.Image) -> int:
     return rot if rot and c and float(c.group(1)) >= 2.0 else 0
 
 
+def _markoer(m: str) -> re.Pattern:
+    """
+    Markør-regex, der tåler det OCR gør ved danske etiketter.
+
+    Tre tilgivelser, hver med et målt tilfælde bag sig:
+      æ ø å   læses tit som ae/a, oe/o, aa/a — en rigtig saftetiket kom
+              ud som "NAERINGSINDHOLD", så "næringsindhold" ramte ikke.
+      mellemrum forsvinder ("Udenlarvestoffer"), så de er valgfrie.
+      ordgrænse foran kræves stadig: "indhold" må ikke matche inde i
+              "Næringsindhold" og gøre ernæringstabellen til sektionen.
+    """
+    dele = []
+    for ch in m:
+        if ch == "æ":
+            dele.append("(?:æ|ae|a)")
+        elif ch == "ø":
+            dele.append("(?:ø|oe|o)")
+        elif ch == "å":
+            dele.append("(?:å|aa|a)")
+        elif ch == " ":
+            dele.append(r"\s*")
+        else:
+            dele.append(re.escape(ch))
+    return re.compile(r"(?<![a-zæøå])" + "".join(dele))
+
+
+def _slut(tekst: str, fra: int = 0) -> int:
+    """Hvor holder ingredienslisten op? Tidligste slutmarkør efter `fra`."""
+    low = tekst.lower()
+    end = len(tekst)
+    for m in END_MARKERS:
+        hit = _markoer(m).search(low, fra)
+        if hit is not None:
+            end = min(end, hit.start())
+    return end
+
+
 def extract_section(text: str) -> str:
-    """Klipper deklarationen ud af al den anden tekst på pakken."""
+    """
+    Klipper deklarationen ud af al den anden tekst på pakken.
+
+    Slutmarkørerne gælder OGSÅ, når der ikke er nogen startmarkør. Mange
+    danske etiketter skriver bare ingredienserne uden at sætte
+    "Ingredienser:" foran, og OCR taber det tit alligevel — før tog vi
+    så hele teksten med, ernæringstabel, opblandingsvejledning og det
+    hele. Slutningen kan vi kende uafhængigt af begyndelsen.
+    """
     low = text.lower()
-    # Markører kræver ordgrænse foran, som i matcheren: "indhold" må ikke
-    # matche inde i "Næringsindhold" — så bliver sektionen ernæringstabel
-    # i stedet for ingrediensliste. Tidligste markør vinder; står to på
-    # samme position ("ingredienser" og "ingrediens"), vinder den længste,
-    # ellers blev "er:" hængende forrest i den udklippede tekst.
+    # Tidligste markør vinder; står to på samme position ("ingredienser"
+    # og "ingrediens"), vinder den længste — ellers blev "er:" hængende
+    # forrest i den udklippede tekst.
     best: tuple[int, int] | None = None  # (position, markørlængde)
     for m in SECTION_MARKERS:
-        hit = re.search(r"(?<![a-zæøå])" + re.escape(m), low)
+        hit = _markoer(m).search(low)
         if hit is None:
             continue
         i = hit.start()
         if best is None or i < best[0] or (i == best[0] and len(m) > best[1]):
             best = (i, len(m))
-    if best is None:
-        return text.strip()
 
-    tail = text[best[0] + best[1]:]
-    low_tail = tail.lower()
-    end = len(tail)
-    for m in END_MARKERS:
-        hit = re.search(r"(?<![a-zæøå])" + re.escape(m), low_tail)
-        if hit is not None:
-            end = min(end, hit.start())
-    return tail[:end].lstrip(" :.-\n").strip()
+    if best is None:
+        start, slut = 0, _slut(text)
+        sektion = text[:slut].strip()
+    else:
+        start = best[0] + best[1]
+        slut = _slut(text, start)
+        sektion = text[start:slut].lstrip(" :.-\n").strip()
+
+    return (sektion + _spor_fra_resten(text, slut)).strip()
+
+
+def _spor_fra_resten(text: str, fra: int) -> str:
+    """
+    Henter sporadvarsler ud af den del, der blev klippet væk.
+
+    Uden det ville en hårdere beskæring kunne tabe "Kan indeholde spor af
+    pistacienødder og selleri" — netop den sætning, der afgør, om varen
+    kan spises. Sætningen tages fra frasen til punktum (eller 200 tegn,
+    for OCR taber punktummer).
+    """
+    rest = text[fra:]
+    if not rest.strip():
+        return ""
+    low = rest.lower()
+    fundet: list[tuple[int, int]] = []
+    for frase in TRACE_PHRASES:
+        for hit in _markoer(frase).finditer(low):
+            s = hit.start()
+            punktum = rest.find(".", s)
+            e = min(punktum + 1 if punktum != -1 else len(rest), s + 200)
+            fundet.append((s, e))
+    if not fundet:
+        return ""
+    # flet overlappende spans, så samme sætning ikke kommer med to gange
+    fundet.sort()
+    flettet: list[tuple[int, int]] = []
+    for s, e in fundet:
+        if flettet and s <= flettet[-1][1]:
+            flettet[-1] = (flettet[-1][0], max(flettet[-1][1], e))
+        else:
+            flettet.append((s, e))
+    return "".join(" " + rest[s:e].strip() for s, e in flettet)
 
 
 def clean(text: str) -> str:

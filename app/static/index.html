@@ -222,6 +222,10 @@ footer a{color:var(--muted)}
       <h3>Bekræft mod emballagen</h3>
       <p class="hint" id="ocrStatus"></p>
       <textarea id="declEdit" placeholder="Ingredienser: …" aria-label="Ingrediensliste"></textarea>
+      <div class="acts" id="tekstVaerktoej" style="padding:8px 0 0" hidden>
+        <button class="btn ghost" id="klipHer" type="button">Klip fra markøren og ned</button>
+        <button class="btn ghost" id="visHele" type="button">Vis hele teksten</button>
+      </div>
       <ul class="chips" id="confirmChips" style="margin:14px 0"></ul>
       <p class="hint">Tryk for at skifte mellem <b>fri</b> og <b>indeholder</b>. Grøn kræver, at du har læst den fysiske pakke.</p>
       <div class="acts" style="padding:12px 0 0">
@@ -666,6 +670,11 @@ $('#ocrFile').onchange = $('#ocrPick').onchange = async e => {
   const d = await r.json();
   if(!d.ok){ $('#ocrStatus').textContent = d.error; return; }
   $('#declEdit').value = d.text;
+  // Appen klipper selv ingredienslisten ud af resten af etiketten. Rammer
+  // den ved siden af, skal I ikke fotografere igen: hele teksten er her.
+  HELE_TEKSTEN = d.raw || d.text;
+  $('#tekstVaerktoej').hidden = false;
+  $('#visHele').hidden = !d.raw || d.raw === d.text;
 
   // Forhåndstjek fra matcheren med OCR-tolerance. Fuzzy-træf er gæt —
   // de siger "ligner", ikke "er", og skal efterses på den fysiske pakke.
@@ -689,6 +698,22 @@ $('#ocrFile').onchange = $('#ocrPick').onchange = async e => {
     $('#confirmChips').dataset.state = JSON.stringify(st);
     paintConfirmChips();
   }
+};
+
+/* ---------- teksten i bekræftelsesskærmen ---------- */
+let HELE_TEKSTEN = '';
+
+// To håndtag, når automatikken rammer forkert. Begge er hurtige med
+// tommelfingeren i en butik: klip resten væk, eller hent alt tilbage.
+$('#klipHer').onclick = () => {
+  const t = $('#declEdit');
+  const i = t.selectionStart;
+  if(i > 0){ t.value = t.value.slice(0, i).trim(); t.focus(); }
+};
+$('#visHele').onclick = () => {
+  $('#declEdit').value = HELE_TEKSTEN;
+  $('#visHele').hidden = true;
+  $('#declEdit').focus();
 };
 
 /* ---------- bekræftelse ---------- */

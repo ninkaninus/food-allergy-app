@@ -3,6 +3,26 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.17.0 — 11. august 2026
+
+- **Nu får I kun ingredienslisten — ikke hele etiketten.** Den nye
+  OCR-motor læser alt, hvad der står på pakken, og det betød
+  opbevaring, holdbarhed, ernæringstabel og producentadresse midt i
+  ingredienslisten. Målt på 20 af jeres fotos er der nu en tredjedel så
+  meget tekst tilbage, og det er den rigtige tredjedel.
+- **Etiketter med to spalter læses i den rigtige rækkefølge.** Før blev
+  spalterne flettet linje for linje, så »Ingredienser:« blev efterfulgt
+  af »højst +5 °C« fra nabospalten.
+- **Sporadvarsler klippes aldrig væk.** Står »Kan indeholde spor af
+  nødder« nede ved producentadressen, følger sætningen med op til
+  ingredienslisten — den er dét, der afgør, om varen kan spises.
+- **Rammer automatikken forkert, er der to knapper:** »Klip fra
+  markøren og ned« fjerner resten, og »Vis hele teksten« henter alt
+  tilbage. I skal aldrig fotografere igen.
+- Sidegevinst: færre falske advarsler. På en pølsepakke advarede appen
+  før om mælk og tomat, fordi den fuzzy-matchede på ernæringstabellens
+  støj. Nu står der kun det, etiketten faktisk siger.
+
 ## 0.16.1 — 11. august 2026
 
 - Rettet: flytningen af databasen til den nye databaseserver stoppede

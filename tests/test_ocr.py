@@ -35,9 +35,12 @@ def test_section_uden_markoer_er_hele_teksten():
 
 def test_indhold_matcher_ikke_inde_i_naeringsindhold():
     """Målt på et rigtigt foto: 'indhold' matchede inde i 'Næringsindhold',
-    og sektionen blev ernæringstabel i stedet for ingrediensliste."""
-    t = "Næringsindhold pr. 100 g: Energi 1888 kJ, Fedt 18 g"
-    assert extract_section(t) == t          # ingen markør — hele teksten
+    og sektionen blev ernæringstabel i stedet for ingrediensliste.
+
+    Ernæringstabellen alene giver nu den tomme streng: slutmarkørerne
+    gælder også, når der ikke er nogen startmarkør — se test_ocr_sektion.py.
+    Ingenting i sådan en tekst ER en ingrediensliste."""
+    assert extract_section("Næringsindhold pr. 100 g: Energi 1888 kJ, Fedt 18 g") == ""
     assert extract_section("Indhold: hvedemel, vand").startswith("hvedemel")
 
 
