@@ -115,7 +115,7 @@ def test_facetter_taeller_som_i_en_webshop(client):
     assert f["status"]["alle"] == 5           # fire scannede + ét listebrød
     assert f["status"]["safe"] == 1
     assert f["status"]["unsafe"] == 1
-    assert f["status"]["liste"] == 1
+    assert f["status"]["uscannet"] == 1
     assert {x["vaerdi"] for x in f["kategori"]} == {"Brød"}
     assert [x["antal"] for x in f["kategori"]] == [1]
 
@@ -123,7 +123,7 @@ def test_facetter_taeller_som_i_en_webshop(client):
 def test_listen_er_med_i_soegningen_men_aldrig_sikker(client):
     navne = {p["navn"]: p for p in _hent(client, q="liste")}
     assert "Listebrød Grov" in navne
-    assert navne["Listebrød Grov"]["status"] == "liste"
+    assert navne["Listebrød Grov"]["status"] == "uscannet"
     assert navne["Listebrød Grov"]["ean"] is None
     assert navne["Listebrød Grov"]["valideret_mod"] == "mælk og æg"
     # og den kan ikke snige sig ind under "kun sikre"
@@ -154,3 +154,72 @@ def test_soegning_folder_aeoeaa(client):
     """'palaeg' skal finde 'Pålæg' — ellers skal man ramme æ/ø/å præcist
     på et telefontastatur i en butik."""
     assert {p["navn"] for p in _hent(client, q="palaeg")} == {"Listepålæg Skinke"}
+
+
+# --- én liste: arket og de scannede varer er samme liste -------------------
+
+def test_scannet_vare_og_arkraekke_bliver_EEN_linje(client):
+    """Har I scannet noget, der står på arket, må det ikke stå to gange —
+    det var hele pointen med at slå listerne sammen."""
+    from app.db import SessionLocal, default_household
+    from app.models import ImportedProduct, Product
+    from app.matcher import ingredients_hash
+
+    with SessionLocal() as db:
+        hh = default_household(db)
+        t = "Rugmel, vand, salt"
+        db.add(Product(ean="5799990000005", name="Listebrød Grov Skiveskåret",
+                       brand="Bagerens", ingredients_text=t,
+                       ingredients_hash=ingredients_hash(t)))
+        db.commit()
+
+    traef = _hent(client, q="listebrød grov")
+    assert len(traef) == 1, [t["navn"] for t in traef]
+    v = traef[0]
+    assert v["scannet"] is True and v["paa_listen"] is True
+    assert v["ean"] == "5799990000005"
+    # arven fra arket: den scannede vare havner i den rigtige gruppe
+    assert v["kategori"] == "Brød"
+    assert v["butik"] == "Netto"
+    # og dommen er stadig motorens/menneskets — ikke arkets
+    assert v["status"] != "safe"
+
+
+def test_to_taerskler_for_match():
+    """Kategori-arv må gerne være løs; påstanden om SAMME vare må ikke.
+
+    Uden det ville "Testbrød Hvid" sluge arkets "Testbrød Grøn" — de
+    deler mærke og halvdelen af navnet — og en række ville forsvinde
+    fra listen, uden at nogen bad om det."""
+    from app.main import _match_liste, _ord_maengde
+    from app.models import ImportedProduct
+
+    ark = ImportedProduct(id=1, household_id=1, navn="Testbrød Grøn",
+                          producent="Bagerens", kategori="Brød")
+    indeks = {}
+    for w in _ord_maengde(ark.navn, ark.producent):
+        indeks.setdefault(w, []).append(ark)
+
+    # samme vare: arkets ord går fuldt op i varens navn
+    ip, samme = _match_liste("Testbrød Grøn Skiveskåret", "Bagerens", indeks)
+    assert ip is ark and samme is True
+
+    # nabovare: nok til at arve hylden, ikke nok til at være den samme
+    ip, samme = _match_liste("Testbrød Hvid", "Bagerens", indeks)
+    assert ip is ark and samme is False
+
+    # ingen fællesnævner: hverken hylde eller sammenlægning
+    ip, samme = _match_liste("Kikærtepasta", "Andet Mærke", indeks)
+    assert ip is None and samme is False
+
+
+def test_grupper_er_hylder_med_antal(client):
+    r = client.get("/api/soeg", params={"allergens": "maelkeprotein"})
+    grupper = r.json()["grupper"]
+    navne = [g["navn"] for g in grupper]
+    assert "Brød" in navne
+    # Uden kategori står sidst — det er ikke en hylde, den mangler bare en
+    assert navne[-1] == "Uden kategori"
+    broed = next(g for g in grupper if g["navn"] == "Brød")
+    assert broed["antal"] == len(broed["varer"]) or len(broed["varer"]) == 6
+    assert all(v["kategori"] == "Brød" for v in broed["varer"])

@@ -126,6 +126,35 @@ def _gammel_liste_hint(db: Session, hh_id: int, name: str | None, brand: str | N
     ]
 
 
+def _match_liste(navn: str | None, maerke: str | None, ordindeks: dict):
+    """
+    Den scannede vares række på det gamle ark. Returnerer (række, samme_vare).
+
+    To forskellige krav, med vilje:
+
+    * **Kategori og butik** arves ved to fælles ord. Det er filterlag —
+      rammer den ved siden af, står varen i en lidt forkert gruppe, og
+      det er til at leve med.
+    * **`samme_vare`** — påstanden om at det ér den samme vare, så de to
+      linjer bliver til én — kræver, at HELE arkets række går op i
+      varens navn. Ellers ville "Testbrød Hvid" spise arkets "Testbrød
+      Grøn", fordi de deler mærke og halvdelen af navnet, og en række
+      ville forsvinde fra jeres liste uden at nogen bad om det.
+    """
+    maal = _ord_maengde(navn, maerke)
+    if not maal:
+        return None, False
+    kandidater = {ip.id: ip for w in maal for ip in ordindeks.get(w, [])}
+    bedst, bedste_score = None, 1
+    for ip in kandidater.values():
+        score = len(maal & _ord_maengde(ip.navn, ip.producent))
+        if score > bedste_score:
+            bedst, bedste_score = ip, score
+    if bedst is None:
+        return None, False
+    return bedst, _ord_maengde(bedst.navn, bedst.producent) <= maal
+
+
 def _soegenoegle(s: str | None) -> str:
     """
     Søgenøgle, hvor de danske stavemåder falder sammen: 'pålæg', 'paalaeg'
@@ -652,9 +681,15 @@ def soeg(
     db: Session = Depends(get_session),
 ):
     """
-    Butiks-agtig søgning på tværs af BEGGE kilder: de varer, I har
-    scannet (med domme), og jeres gamle godkendt-liste (uden domme,
-    fordi arket ikke har stregkoder).
+    Butiks-agtig søgning i ÉN liste. Varerne fra det gamle regneark og
+    de varer, I har scannet, er samme liste: har I scannet noget, der
+    står på arket, bliver det én linje — den scannede, med dommen — og
+    arket giver den sin kategori og butik.
+
+    Underliggende ligger de i hver sin tabel, og det bliver de ved med:
+    `product` er ODbL-afledt fra Open Food Facts, arket er jeres eget
+    (se NOTICE.md), og domme hænger på (EAN, allergen), som arket ikke
+    har.
 
     Sikkerheden er den samme som på scan-skærmen: domme kommer fra
     `_verdict_rows`, så en manuel godkendelse kun tæller med uændret
@@ -662,18 +697,19 @@ def soeg(
 
     Filtre (alle valgfrie, kombineres):
       q         fritekst i navn, mærke, kategori og butik (æ/ø/å-tolerant)
-      status    alle | safe | unsafe | uafklaret | liste
+      status    alle | safe | unsafe | uafklaret | uscannet
       fri_for   kommaseparerede allergen-slugs: skjuler varer, hvor
                 allergenet ER fundet. Bemærk: det er IKKE det samme som
                 bevist fri — ukendt er stadig ukendt, og hver vare
                 beholder sin egen farve.
-      kategori  jeres egne hyldenavne fra regnearket
+      kategori  jeres egne hyldenavne fra regnearket — også for de
+                scannede varer, der matcher en række på arket
       butik     hvor I plejer at købe den
 
     Svaret rummer facetter med antal, så knapperne kan vise tal som i en
     webshop — hver facet talt med de ØVRIGE filtre aktive.
     """
-    gyldige = {"alle", "safe", "unsafe", "caution", "unverified", "uafklaret", "liste"}
+    gyldige = {"alle", "safe", "unsafe", "caution", "unverified", "uafklaret", "uscannet"}
     if status not in gyldige:
         raise HTTPException(400, f"status skal være en af: {', '.join(sorted(gyldige))}")
     if allergens is not None:
@@ -697,41 +733,57 @@ def soeg(
     ):
         domme.setdefault(v.product_ean, {})[slug] = v
 
+    liste = list(db.scalars(
+        select(ImportedProduct).where(ImportedProduct.household_id == hh.id)
+    ))
+    ordindeks: dict[str, list[ImportedProduct]] = {}
+    for ip in liste:
+        for w in _ord_maengde(ip.navn, ip.producent):
+            ordindeks.setdefault(w, []).append(ip)
+
     kandidater: list[dict] = []
+    brugt: set[int] = set()          # liste-rækker, der er slået sammen med en scannet vare
     for p in db.scalars(select(Product)):
         rows, verdicts, stale = _verdict_rows(db, hh.id, p, slugs, domme.get(p.ean, {}))
+        ip, samme_vare = _match_liste(p.name, p.brand, ordindeks)
+        if samme_vare:
+            brugt.add(ip.id)      # kun ved sikkert match — ellers taber vi en række
         kandidater.append({
-            "kilde": "scannet",
             "ean": p.ean,
             "navn": p.name or "Uden navn",
             "maerke": p.brand,
             "billede": p.image_url,
-            "kategori": None,
-            "butik": None,
+            # Scannede varer har ingen hyldenavne af sig selv — de arver
+            # jeres egne fra arket, så de står i den rigtige gruppe.
+            "kategori": ip.kategori if ip else None,
+            "butik": ip.butik if ip else None,
+            "paa_listen": samme_vare,
+            "scannet": True,
             "status": aggregate(verdicts),
             "stale": bool(stale),
             "problemer": [r["name"] for r in rows if r["state"] == "contains"],
             "spor": [r["name"] for r in rows if r["state"] == "trace_risk"],
             "_fundet": {r["slug"] for r in rows if r["state"] in ("contains", "trace_risk")},
         })
-    for ip in db.scalars(
-        select(ImportedProduct).where(ImportedProduct.household_id == hh.id)
-    ):
+    for ip in liste:
+        if ip.id in brugt:
+            continue             # står allerede i listen som scannet vare
         kandidater.append({
-            "kilde": "liste",
             "ean": None,
             "navn": ip.navn,
             "maerke": ip.producent,
             "billede": None,
             "kategori": ip.kategori,
             "butik": ip.butik,
-            "status": "liste",
+            "paa_listen": True,
+            "scannet": False,
+            "status": "uscannet",
             "stale": False,
             "problemer": [],
             "spor": [],
             "valideret_mod": ip.valideret_mod,
-            # Listen kender ikke ingredienserne, så intet er "fundet".
-            # Den ryger derfor aldrig ud på fri_for — ukendt er ukendt.
+            # Arket kender ikke ingredienserne, så intet er "fundet".
+            # Rækken ryger derfor aldrig ud på fri_for — ukendt er ukendt.
             "_fundet": set(),
         })
 
@@ -790,7 +842,7 @@ def soeg(
         "safe": sum(k["status"] == "safe" for k in uden_status),
         "unsafe": sum(k["status"] == "unsafe" for k in uden_status),
         "uafklaret": sum(k["status"] in ("caution", "unverified") for k in uden_status),
-        "liste": sum(k["status"] == "liste" for k in uden_status),
+        "uscannet": sum(k["status"] == "uscannet" for k in uden_status),
     }
 
     facetter = {
@@ -802,15 +854,34 @@ def soeg(
     traef = filtrer()
     # Det gode først, det forbudte sidst — man søger for at finde noget,
     # man kan købe.
-    rang = {"safe": 0, "unverified": 1, "caution": 1, "liste": 2, "unsafe": 3}
+    rang = {"safe": 0, "unverified": 1, "caution": 1, "uscannet": 2, "unsafe": 3}
     traef.sort(key=lambda k: (rang.get(k["status"], 9), (k["navn"] or "").lower()))
     for k in kandidater:
         k.pop("_fundet", None)
+
+    # Grupperne er hylderne i butikken. Har man allerede valgt én
+    # kategori, er der kun én gruppe, og så vises den fuldt ud; ellers
+    # får hver hylde et kig, og "vis alle" åbner den.
+    pr_gruppe = limit if kategori else 6
+    grupper: dict[str, dict] = {}
+    for k in traef:
+        navn = k["kategori"] or "Uden kategori"
+        g = grupper.setdefault(navn, {"navn": navn, "antal": 0, "varer": []})
+        g["antal"] += 1
+        if len(g["varer"]) < pr_gruppe:
+            g["varer"].append(k)
+
+    ordnet = sorted(
+        grupper.values(),
+        # Uden kategori sidst — de er ikke en hylde, de mangler bare en.
+        key=lambda g: (g["navn"] == "Uden kategori", -g["antal"], g["navn"]),
+    )
 
     return {
         "antal": len(traef),
         "vist": min(len(traef), limit),
         "varer": traef[:limit],
+        "grupper": ordnet,
         "facetter": facetter,
     }
 

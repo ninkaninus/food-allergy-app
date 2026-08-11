@@ -121,6 +121,11 @@ mark.trace_risk{color:var(--caution);font-weight:700;text-decoration:underline;
 details.sec>summary{font-size:11px;letter-spacing:.16em;text-transform:uppercase;
   color:var(--muted);font-weight:700;cursor:pointer}
 .count{font-size:12.5px;color:var(--muted);margin:14px 0 0}
+.hits .gruppe{padding:16px 0 6px;border-bottom:2px solid var(--ink);align-items:baseline}
+.hits .gruppe:first-child{padding-top:4px}
+.hits .gruppe-h{font-family:Archivo,sans-serif;font-variation-settings:"wdth" 112,"wght" 750;
+  font-size:15px;letter-spacing:.01em;text-transform:uppercase}
+.hits .mere{border-bottom:0;padding-top:8px}
 .hits .badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:5px}
 .hits .badge{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;
   padding:2px 6px;border:1px solid var(--rule);color:var(--muted)}
@@ -605,7 +610,7 @@ let soegNr = 0;
 
 const STATUS_KNAPPER = [
   ['alle', 'Alle'], ['safe', 'Sikre'], ['unsafe', 'Ikke tilladt'],
-  ['uafklaret', 'Skal tjekkes'], ['liste', 'Fra jeres liste'],
+  ['uafklaret', 'Skal tjekkes'], ['uscannet', 'Ikke scannet'],
 ];
 
 function chip(tekst, valgt, antal, deaktiveret){
@@ -665,18 +670,32 @@ async function soeg(){
   const forklaring = v => v.status === 'safe' ? 'bekræftet mod emballagen'
     : v.status === 'unsafe' ? (v.problemer.join(', ') || 'allergen fundet')
     : v.status === 'caution' ? 'spor? ' + (v.spor.join(', ') || '')
-    : v.status === 'liste' ? (v.valideret_mod ? 'fra jeres liste — bekræftet uden ' + v.valideret_mod : 'fra jeres liste')
+    : v.status === 'uscannet' ? (v.valideret_mod ? 'fra arket — bekræftet uden ' + v.valideret_mod : 'fra arket, ikke scannet endnu')
     : 'ikke bekræftet';
 
-  $('#sHits').innerHTML = d.varer.length
-    ? d.varer.map(v => `<li>
-        <span><span class="dot ${dot(v.status)}" style="display:inline-block;vertical-align:-2px;margin-right:8px"></span><b>${esc(v.navn)}</b>
-          <span class="sub"><br>${esc(v.maerke || '—')} · ${esc(forklaring(v))}${v.stale ? ' · <b>opskrift ændret</b>' : ''}</span>
-          <span class="badges">${[v.kategori, v.butik, v.kilde === 'liste' ? 'ikke scannet' : null]
-            .filter(Boolean).map(t => `<span class="badge">${esc(t)}</span>`).join('')}</span></span>
-        ${v.ean ? `<button class="link" data-ean="${esc(v.ean)}">åbn</button>` : ''}</li>`).join('')
-    : `<li class="none">Ingen træf. ${soegState.q || soegState.fri.size || soegState.kategori ? 'Prøv at fjerne et filter.' : 'Listen fyldes, når I scanner varer.'}</li>`;
+  const vare = v => `<li>
+      <span><span class="dot ${dot(v.status)}" style="display:inline-block;vertical-align:-2px;margin-right:8px"></span><b>${esc(v.navn)}</b>
+        <span class="sub"><br>${esc(v.maerke || '—')} · ${esc(forklaring(v))}${v.stale ? ' · <b>opskrift ændret</b>' : ''}</span>
+        <span class="badges">${[
+          v.butik,
+          v.scannet && v.paa_listen ? 'også på arket' : null,
+        ].filter(Boolean).map(t => `<span class="badge">${esc(t)}</span>`).join('')}</span></span>
+      ${v.ean ? `<button class="link" data-ean="${esc(v.ean)}">åbn</button>` : ''}</li>`;
 
+  $('#sHits').innerHTML = d.grupper.length
+    ? d.grupper.map(g => `<li class="gruppe">
+        <span class="gruppe-h">${esc(g.navn)}</span>
+        <span class="sub">${g.antal}</span></li>`
+        + g.varer.map(vare).join('')
+        + (g.antal > g.varer.length
+            ? `<li class="mere"><button class="link" data-kat="${esc(g.navn)}">vis alle ${g.antal} i ${esc(g.navn)}</button></li>`
+            : '')).join('')
+    : `<li class="none">Ingen træf. ${soegState.q || soegState.fri.size || soegState.kategori ? 'Prøv at fjerne et filter.' : 'Listen fyldes, når I scanner varer — eller importerer arket.'}</li>`;
+
+  $('#sHits').querySelectorAll('button[data-kat]').forEach(b => b.onclick = () => {
+    soegState.kategori = b.dataset.kat === 'Uden kategori' ? null : b.dataset.kat;
+    soeg(); window.scrollTo(0, 0);
+  });
   $('#sHits').querySelectorAll('button[data-ean]').forEach(b => b.onclick = () => {
     document.querySelector('nav.tabs button[data-view="scan"]').click();
     lookup(b.dataset.ean);

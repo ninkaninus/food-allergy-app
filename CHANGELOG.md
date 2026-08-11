@@ -3,6 +3,21 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.12.0 — 11. august 2026
+
+- **Én liste med hylder — ikke to lister længere.** Varerne fra
+  regnearket og de varer, I har scannet, står nu i samme liste, delt op
+  i jeres egne kategorier: Pålæg, Bagning, Brød, Ris og pasta …
+  Hver hylde viser de første seks og et »vis alle« til resten.
+- **Har I scannet noget, der står på arket, er det én linje.** Den
+  scannede vare vinder — den har dommen — og arket giver den sin hylde
+  og butik. Varen får mærket »også på arket«.
+- Varer, der ikke er scannet endnu, står stadig i listen med teksten
+  »fra arket, ikke scannet endnu«. De kan ikke blive grønne af sig
+  selv; det kræver stadig, at I scanner og læser emballagen.
+- Filteret »Fra jeres liste« hedder nu »Ikke scannet«, for det er dét,
+  det betyder.
+
 ## 0.11.0 — 11. august 2026
 
 - **Filtrér-fanen er nu én søgning, som i en netbutik.** Ét søgefelt
