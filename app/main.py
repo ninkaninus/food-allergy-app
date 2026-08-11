@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import re
 from dataclasses import asdict
 from pathlib import Path
 
@@ -28,10 +29,11 @@ from .auth import (
     verify_password,
 )
 from .db import RULES, default_household, get_session, init_db
-from .matcher import Basis, State, aggregate, ingredients_hash, normalize
+from .matcher import Basis, State, aggregate, fold, ingredients_hash, normalize
 from .version import VERSION
 from .models import (
     Allergen,
+    ImportedProduct,
     User,
     Product,
     Profile,
@@ -75,6 +77,114 @@ def _queue(db: Session, hh_id: int, ean: str, reason: str) -> None:
     )
     if existing is None:
         db.add(ReviewItem(household_id=hh_id, product_ean=ean, reason=reason))
+
+
+def _ord_maengde(*tekster: str | None) -> set[str]:
+    """Betydende ord (4+ tegn, æøå-foldet) til grov navnesammenligning."""
+    ud: set[str] = set()
+    for t in tekster:
+        for w in re.findall(r"[a-zæøåéü]+", (t or "").lower()):
+            if len(w) >= 4:
+                ud.add(fold(w))
+    return ud
+
+
+def _gammel_liste_hint(db: Session, hh_id: int, name: str | None, brand: str | None) -> list[dict]:
+    """
+    Ligner den scannede vare noget fra den importerede godkendt-liste?
+
+    Filterlags-heuristik: overinklusion er acceptabel, for det her er et
+    HINT ("I har haft den på jeres liste — bekræft mod emballagen"),
+    aldrig en dom. Listen har ingen EAN, så navne er alt, vi har.
+    """
+    maal = _ord_maengde(name, brand)
+    if not maal:
+        return []
+    brand_ord = _ord_maengde(brand)
+    kandidater: list[tuple[int, ImportedProduct]] = []
+    for ip in db.scalars(
+        select(ImportedProduct).where(ImportedProduct.household_id == hh_id)
+    ):
+        faelles = maal & _ord_maengde(ip.navn, ip.producent)
+        staerk = len(faelles) >= 2 or (
+            len(faelles) == 1 and brand_ord and brand_ord & _ord_maengde(ip.producent)
+        )
+        if staerk:
+            kandidater.append((len(faelles), ip))
+    # flest fælles ord først — det konkrete navnematch skal stå før
+    # rækker, der kun deler producent
+    kandidater.sort(key=lambda t: -t[0])
+    return [
+        {
+            "navn": ip.navn,
+            "producent": ip.producent,
+            "butik": ip.butik,
+            "kategori": ip.kategori,
+            "valideret": ip.valideret,
+        }
+        for _, ip in kandidater[:3]
+    ]
+
+
+def _verdict_rows(db: Session, hh_id: int, product: Product, slugs: list[str]):
+    """
+    Domslogikken, som både scan-skærmen og gennemse-listen bruger — én
+    kilde, så listen aldrig kan sige noget andet end scanningen ville.
+    Gemte manuelle domme gælder kun, hvis opskriften er uændret
+    (ingredients_hash); alt andet beregnes af motoren. Ingen sideeffekter:
+    kø og scanlog hører til i scan-endpointet.
+    """
+    from .matcher import AllergenVerdict
+
+    stored = {
+        v.allergen.slug: v
+        for v in db.scalars(
+            select(Verdict).where(
+                Verdict.household_id == hh_id, Verdict.product_ean == product.ean
+            )
+        )
+    }
+    stale = [
+        slug
+        for slug, v in stored.items()
+        if v.basis == Basis.MANUAL.value and v.ingredients_hash != product.ingredients_hash
+    ]
+
+    rows = []
+    verdicts = []
+    for slug in slugs:
+        v = stored.get(slug)
+        if v is not None and v.basis == Basis.MANUAL.value and slug not in stale:
+            computed = None
+            state, basis, evidence = v.state, v.basis, v.evidence
+        else:
+            computed = RULES.evaluate(
+                slug,
+                product.ingredients_text,
+                product.off_allergen_tags,
+                product.off_trace_tags,
+            )
+            state, basis = computed.state.value, computed.basis.value
+            evidence = [asdict(h) for h in computed.hits]
+
+        meta = RULES.allergens[slug]["meta"]
+        rows.append(
+            {
+                "slug": slug,
+                "name": meta["name_da"],
+                "eu14": bool(meta.get("eu14")),
+                "state": state,
+                "basis": basis,
+                "evidence": evidence,
+                "stale": slug in stale,
+            }
+        )
+        if computed is not None:
+            verdicts.append(computed)
+        else:
+            verdicts.append(AllergenVerdict(slug, State(state), Basis(basis)))
+
+    return rows, verdicts, stale
 
 
 async def _ensure_product(db: Session, ean: str, refresh: bool = False) -> tuple[Product | None, str]:
@@ -250,58 +360,9 @@ async def scan(
             "allergens": [],
         }
 
-    # Gemte manuelle domme, men kun hvis opskriften ikke er ændret.
-    stored = {
-        v.allergen.slug: v
-        for v in db.scalars(
-            select(Verdict).where(
-                Verdict.household_id == hh.id, Verdict.product_ean == ean
-            )
-        )
-    }
-    stale = [
-        slug
-        for slug, v in stored.items()
-        if v.basis == Basis.MANUAL.value and v.ingredients_hash != product.ingredients_hash
-    ]
+    rows, verdicts, stale = _verdict_rows(db, hh.id, product, slugs)
     if stale:
         _queue(db, hh.id, ean, "recipe_changed")
-
-    rows = []
-    verdicts = []
-    for slug in slugs:
-        v = stored.get(slug)
-        if v is not None and v.basis == Basis.MANUAL.value and slug not in stale:
-            computed = None
-            state, basis, evidence = v.state, v.basis, v.evidence
-        else:
-            computed = RULES.evaluate(
-                slug,
-                product.ingredients_text,
-                product.off_allergen_tags,
-                product.off_trace_tags,
-            )
-            state, basis = computed.state.value, computed.basis.value
-            evidence = [asdict(h) for h in computed.hits]
-
-        meta = RULES.allergens[slug]["meta"]
-        rows.append(
-            {
-                "slug": slug,
-                "name": meta["name_da"],
-                "eu14": bool(meta.get("eu14")),
-                "state": state,
-                "basis": basis,
-                "evidence": evidence,
-                "stale": slug in stale,
-            }
-        )
-        if computed is not None:
-            verdicts.append(computed)
-        else:
-            from .matcher import AllergenVerdict
-
-            verdicts.append(AllergenVerdict(slug, State(state), Basis(basis)))
 
     result = aggregate(verdicts)
 
@@ -322,6 +383,7 @@ async def scan(
         "found": True,
         "source": source,
         "result": result,
+        "gammel_liste": _gammel_liste_hint(db, hh.id, product.name, product.brand),
         "product": {
             "name": product.name,
             "brand": product.brand,
@@ -557,6 +619,72 @@ def ingredient_suggest(q: str, db: Session = Depends(get_session)):
     return ix.suggest(db, q)
 
 
+@app.get("/api/browse")
+def browse(
+    q: str = "",
+    status: str = "alle",
+    allergens: str | None = None,
+    limit: int = 60,
+    db: Session = Depends(get_session),
+):
+    """
+    Gennemse de varer, I allerede har scannet, med SAMME domslogik som
+    scan-skærmen (_verdict_rows) — 'safe' viser kun varer, et menneske
+    har bekræftet mod emballagen for de valgte allergener. Listen kan
+    aldrig GØRE en vare grøn, kun vise de grønne frem.
+
+    q matcher navn og mærke som substring: 'brød' rammer rugbrød,
+    toastbrød, knækbrød. status: alle | safe | unsafe | caution |
+    unverified | uafklaret (= caution + unverified).
+    """
+    gyldige = {"alle", "safe", "unsafe", "caution", "unverified", "uafklaret"}
+    if status not in gyldige:
+        raise HTTPException(400, f"status skal være en af: {', '.join(sorted(gyldige))}")
+    if allergens is not None:
+        slugs = [s for s in (t.strip() for t in allergens.split(",")) if s in RULES.allergens]
+        if not slugs:
+            raise HTTPException(400, "ingen gyldige allergener angivet")
+    else:
+        slugs = list(RULES.allergens)
+
+    hh = default_household(db)
+    ql = (q or "").strip().lower()
+    limit = max(1, min(limit, 200))
+    out = []
+    for p in db.scalars(select(Product).order_by(Product.name)):
+        blob = " ".join(filter(None, [p.name, p.brand])).lower()
+        if ql and ql not in blob:
+            continue
+        rows, verdicts, stale = _verdict_rows(db, hh.id, p, slugs)
+        result = aggregate(verdicts)
+        passer = (
+            status == "alle"
+            or result == status
+            or (status == "uafklaret" and result in ("caution", "unverified"))
+        )
+        if not passer:
+            continue
+        out.append(
+            {
+                "ean": p.ean,
+                "name": p.name,
+                "brand": p.brand,
+                "image_url": p.image_url,
+                "result": result,
+                "stale": bool(stale),
+                "problemer": [r["name"] for r in rows if r["state"] == "contains"],
+                "spor": [r["name"] for r in rows if r["state"] == "trace_risk"],
+            }
+        )
+        if len(out) >= limit:
+            break
+    return {
+        "count": len(out),
+        "i_cache": db.scalar(select(func.count()).select_from(Product)),
+        "products": out,
+    }
+
+
 @app.get("/api/products")
 def product_filter(
     exclude: str | None = None,
@@ -676,6 +804,39 @@ def attribution(db: Session = Depends(get_session)):
         },
         "software": "Se NOTICE.md i kildekoden.",
     }
+
+
+@app.get("/api/liste")
+def gammel_liste(q: str = "", db: Session = Depends(get_session)):
+    """
+    Søgning i den importerede godkendt-liste (regnearket uden EAN).
+    Åben læsning som resten — men INGEN domme herfra: listen kender ikke
+    stregkoderne, så hver vare skal stadig scannes og bekræftes.
+    """
+    hh = default_household(db)
+    ql = q.strip().lower()
+    ud = []
+    antal = 0
+    for ip in db.scalars(
+        select(ImportedProduct)
+        .where(ImportedProduct.household_id == hh.id)
+        .order_by(ImportedProduct.kategori, ImportedProduct.navn)
+    ):
+        antal += 1
+        blob = " ".join(
+            filter(None, [ip.navn, ip.producent, ip.butik, ip.kategori])
+        ).lower()
+        if ql and ql not in blob:
+            continue
+        if len(ud) < 100:
+            ud.append({
+                "navn": ip.navn,
+                "producent": ip.producent,
+                "butik": ip.butik,
+                "kategori": ip.kategori,
+                "valideret": ip.valideret,
+            })
+    return {"i_alt": antal, "varer": ud}
 
 
 @app.get("/api/version")

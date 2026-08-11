@@ -34,20 +34,21 @@ der skal fikses.
 
 ---
 
-## Fase 1 — Få jeres eksisterende viden ind (en weekend)
+## Fase 1 — Få jeres eksisterende viden ind ✓ (import som opslagsliste)
 
-Excel-arket er allerede jeres mest værdifulde aktiv. Det skal ind.
+Gjort — men anderledes end planlagt, for arket viste sig ikke at have
+EAN-koder, og domme hænger på (EAN, allergen). I stedet:
 
-- [ ] Skriv `app/cli.py import <fil.xlsx>` — læs arket, opret `Verdict`-rækker
-      med `basis=manual` og `decided_by="import fra Excel"`
-- [ ] Sæt `ingredients_hash` til `None` for importerede rækker, så de
-      markeres `stale` ved første scanning og bliver bekræftet mod
-      emballagen, når I alligevel står med varen
-- [ ] Kør `app.cli reindex` bagefter
+- [x] `python -m app.cli import <fil.xlsx>` læser arket (583 varer, alle
+      kategoriark, `Valideret`-kolonnen bevaret) ind i en separat
+      opslagsliste uden domme
+- [x] Listen er søgbar under Filtrér-fanen, og ved scanning vises et hint,
+      når varen ligner noget fra listen — "bekræft stadig mod emballagen"
+- [x] Hver vare graduerer til en rigtig dom, første gang I scanner og
+      bekræfter den. Genimport udskifter listen (idempotent).
 
-Uden EAN-koder i arket bliver import besværligt. Har arket kun produktnavne,
-er det formentlig hurtigere at scanne varerne ind, efterhånden som I bruger
-dem, end at slå 200 stregkoder op manuelt.
+Regnearket committes ALDRIG til git — det er jeres data. Læg det i
+`/mnt/user/appdata/allergiscan/data/` og kør importen derfra.
 
 ---
 

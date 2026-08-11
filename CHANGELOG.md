@@ -3,8 +3,23 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.9.0 — 11. august 2026
+
+- **Jeres gamle godkendt-liste er nu i appen.** Regnearket (583 varer)
+  kan importeres med én kommando og søges under Filtrér-fanen —
+  kategori, producent, butik og ✓ for de validerede følger med.
+- **Scanner I en vare, der ligner noget fra listen, siger appen det** —
+  som et hint, aldrig som en grøn dom. Arket har ingen stregkoder, så
+  hver vare bliver først grøn, når I scanner og bekræfter den mod
+  emballagen, som alle andre.
+- Genimport udskifter listen, så I kan opdatere regnearket og køre
+  importen igen.
+
 ## 0.8.0 — 11. august 2026
 
+- **Appen har fået et logo:** en stregkode med rød scanlinje. Det står
+  øverst i appen, og gemmer du appen på hjemmeskærmen, får den sit eget
+  ikon i stedet for et gråt standardbogstav.
 - **OCR er kalibreret mod 106 rigtige butiksfotos.** Andelen med god
   læsning steg fra 39 til 48 af 106, og andelen, der måtte afvises,
   faldt fra 39 til 28.

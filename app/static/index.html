@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AllergiScan</title>
 <meta name="theme-color" content="#12181C">
+<link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..900&family=Public+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
@@ -25,8 +27,10 @@ body{
 
 .bar{display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding:20px 0 13px;border-bottom:2px solid var(--ink)}
-.mark{font-family:Archivo,sans-serif;font-variation-settings:"wdth" 118,"wght" 800;
+.mark{display:flex;align-items:center;gap:9px;
+  font-family:Archivo,sans-serif;font-variation-settings:"wdth" 118,"wght" 800;
   font-size:19px;letter-spacing:-.02em;text-transform:uppercase}
+.mark img{width:26px;height:26px;display:block}
 .who{font-size:13px;color:var(--muted);text-align:right}
 .who b{color:var(--ink);font-weight:700}
 .link{background:none;border:0;padding:0;color:var(--ink);text-decoration:underline;
@@ -131,7 +135,7 @@ footer a{color:var(--muted)}
 <div class="wrap">
 
   <header class="bar">
-    <div class="mark">AllergiScan</div>
+    <div class="mark"><img src="/static/icon.svg" alt="">AllergiScan</div>
     <div class="who">
       <div>Tjekker for <b id="who">—</b></div>
       <button class="link" id="authBtn">Log ind</button>
@@ -195,6 +199,20 @@ footer a{color:var(--muted)}
   <!-- ==================== FILTER ==================== -->
   <section id="view-filter" hidden>
     <div class="sec">
+      <h3>Gennemse jeres varer</h3>
+      <input id="browseQ" placeholder="brød, mælk, pålæg …" aria-label="Søg i navn og mærke">
+      <ul class="chips" id="browseChips" style="margin:10px 0 0">
+        <li><button class="chip" data-status="alle" aria-pressed="true">Alle</button></li>
+        <li><button class="chip" data-status="safe" aria-pressed="false">Kun sikre</button></li>
+        <li><button class="chip" data-status="unsafe" aria-pressed="false">Ikke tilladt</button></li>
+        <li><button class="chip" data-status="uafklaret" aria-pressed="false">Skal tjekkes</button></li>
+      </ul>
+      <p class="hint">Viser de varer, I har scannet, målt mod dine valgte allergener.
+        »Kun sikre« er dem, et menneske har bekræftet mod emballagen — læs stadig etiketten.</p>
+      <ul class="hits" id="browseHits"></ul>
+    </div>
+
+    <div class="sec">
       <h3>Find varer uden en ingrediens</h3>
       <input id="filterQ" placeholder="jordbær, valle, lecithin" aria-label="Ingredienser der skal undgås">
       <div class="acts" style="padding:12px 0 0">
@@ -204,6 +222,17 @@ footer a{color:var(--muted)}
     </div>
     <div id="filterWarn"></div>
     <ul class="hits" id="filterHits"></ul>
+
+    <div class="sec">
+      <h3>Jeres gamle godkendt-liste</h3>
+      <input id="listeQ" placeholder="digestive" aria-label="Søg i den gamle liste">
+      <div class="acts" style="padding:12px 0 0">
+        <button class="btn ghost" id="listeGo">Søg</button>
+      </div>
+      <p class="hint">Importeret fra jeres regneark — uden stregkoder, så ingen grønne
+        domme herfra. Scan varen, og bekræft mod emballagen som altid.</p>
+      <ul class="hits" id="listeHits"></ul>
+    </div>
 
     <div class="sec">
       <h3>Hvad hedder det i danske deklarationer?</h3>
@@ -303,6 +332,7 @@ document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav.tabs button').forEach(x =>
     x.setAttribute('aria-current', String(x === b)));
   for(const v of ['scan','filter','prefs']) $('#view-'+v).hidden = (v !== b.dataset.view);
+  if(b.dataset.view === 'filter') browse();   // frisk liste, hver gang fanen åbnes
   window.scrollTo(0,0);
 });
 
@@ -355,10 +385,14 @@ function render(d){
   $('#explain').textContent = d.message || ex;
 
   const p = d.product || {};
+  // Hint fra den importerede godkendt-liste: et navnematch, aldrig en dom.
+  const gl = (d.gammel_liste || [])[0];
   $('#prod').innerHTML = (p.image_url ? `<img src="${esc(p.image_url)}" alt="" loading="lazy">` : '')
     + `<div><h2>${esc(p.name || 'Ukendt vare')}</h2>
        <p class="meta">${esc(p.brand || '—')}${p.quantity ? ' · '+esc(p.quantity) : ''}</p>
-       <p class="meta ean">${esc(d.ean)}</p></div>`;
+       <p class="meta ean">${esc(d.ean)}</p>
+       ${gl ? `<p class="meta">&#128203; Ligner <b>${esc(gl.navn)}</b>${gl.producent ? ' ('+esc(gl.producent)+')' : ''}
+         fra jeres gamle liste — bekræft stadig mod emballagen.</p>` : ''}</div>`;
 
   $('#rows').innerHTML = (d.allergens||[]).map(a => `
     <li><span class="dot ${a.state}"></span>
@@ -547,6 +581,41 @@ $('#saveConfirm').onclick = async () => {
   lookup(ean);
 };
 
+/* ---------- gennemse ---------- */
+let browseStatus = 'alle';
+
+async function browse(){
+  const p = new URLSearchParams({
+    q: $('#browseQ').value.trim(),
+    status: browseStatus,
+    allergens: prefs.allergens.join(','),
+  });
+  const d = await (await fetch('/api/browse?' + p)).json();
+  const dot = r => r === 'unsafe' ? 'contains' : r === 'caution' ? 'trace_risk' : r === 'safe' ? 'free' : '';
+  const sub = x => x.result === 'safe' ? 'bekræftet'
+    : x.result === 'unsafe' ? (x.problemer || []).join(', ')
+    : x.result === 'caution' ? 'spor? ' + (x.spor || []).join(', ')
+    : 'ikke bekræftet';
+  $('#browseHits').innerHTML = d.products.length
+    ? d.products.map(x => `<li>
+        <span><span class="dot ${dot(x.result)}" style="display:inline-block;vertical-align:-2px;margin-right:8px"></span><b>${esc(x.name || 'Uden navn')}</b>
+          <span class="sub"><br>${esc(x.brand || '—')} · ${esc(sub(x))}${x.stale ? ' · <b>opskrift ændret</b>' : ''}</span></span>
+        <button class="link" data-ean="${esc(x.ean)}">åbn</button></li>`).join('')
+    : `<li class="none">${d.i_cache ? 'Ingen varer matcher.' : 'Ingenting endnu — listen fyldes, når I scanner.'}</li>`;
+  $('#browseHits').querySelectorAll('button[data-ean]').forEach(b => b.onclick = () => {
+    document.querySelector('nav.tabs button[data-view="scan"]').click();
+    lookup(b.dataset.ean);
+  });
+}
+
+$('#browseQ').onkeydown = e => { if(e.key === 'Enter') browse(); };
+$('#browseQ').oninput = (() => { let t; return () => { clearTimeout(t); t = setTimeout(browse, 350); }; })();
+$('#browseChips').querySelectorAll('.chip').forEach(b => b.onclick = () => {
+  browseStatus = b.dataset.status;
+  $('#browseChips').querySelectorAll('.chip').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  browse();
+});
+
 /* ---------- filtrering ---------- */
 $('#filterGo').onclick = async () => {
   const q = $('#filterQ').value.trim();
@@ -575,6 +644,19 @@ $('#sugGo').onclick = async () => {
         <span class="sub">${i.seen}×</span></li>`).join('')
     : '<li class="none">Intet i indekset endnu. Scan nogle varer først.</li>';
 };
+
+$('#listeGo').onclick = async () => {
+  const q = $('#listeQ').value.trim();
+  const d = await (await fetch('/api/liste?q=' + encodeURIComponent(q))).json();
+  $('#listeHits').innerHTML = d.varer.length
+    ? d.varer.map(v => `<li><span><b>${esc(v.navn)}</b>
+        <span class="sub"><br>${esc(v.producent || '—')} · ${esc(v.butik || '')}</span></span>
+        <span class="sub">${esc(v.kategori || '')}${v.valideret ? ' ✓' : ''}</span></li>`).join('')
+    : (d.i_alt
+        ? '<li class="none">Ingen træf blandt de ' + d.i_alt + ' varer på listen.</li>'
+        : '<li class="none">Ingenting importeret endnu — se README for import-kommandoen.</li>');
+};
+$('#listeQ').onkeydown = e => { if(e.key === 'Enter') $('#listeGo').click(); };
 
 /* ---------- indstillinger ---------- */
 $('#prefName').oninput = e => { prefs.name = e.target.value; savePrefs(); };

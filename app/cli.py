@@ -17,7 +17,7 @@ from sqlalchemy import create_engine, func, select, text
 from . import ingredients as ix
 from .auth import hash_password, validate_new_password
 from .db import DATABASE_URL, SessionLocal, default_household, init_db
-from .models import Base, Product, User
+from .models import Base, ImportedProduct, Product, User
 
 
 def adduser(email: str, name: str, role: str = "admin") -> None:
@@ -57,6 +57,72 @@ def reindex() -> None:
                                        p.ingredients_text))
         db.commit()
     print(f"Genindekserede {n} varer.")
+
+
+def import_liste(fil: str) -> None:
+    """
+    Importerer jeres gamle godkendt-liste fra regnearket (xlsx).
+
+    Arket har ingen EAN-koder, så rækkerne bliver IKKE til domme — de
+    lander i en separat opslagsliste, som appen søger i og viser som
+    hint ved scanning. Hver vare bliver først grøn, når den scannes og
+    bekræftes mod den fysiske emballage, som alle andre.
+
+    Forventer kolonneoverskrifter i første række pr. ark: Beskrivelse,
+    Producent, Butik, Link, Valideret (x = ja). Arket 'MasterData'
+    springes over. Genimport udskifter hele listen — idempotent.
+    """
+    from openpyxl import load_workbook
+
+    init_db()
+    wb = load_workbook(fil, read_only=True, data_only=True)
+    rows: list[dict] = []
+    for ws in wb:
+        if ws.title.strip().lower() == "masterdata":
+            continue
+        it = ws.iter_rows(values_only=True)
+        header = next(it, None)
+        if not header:
+            continue
+        kol = {str(h).strip().lower(): i for i, h in enumerate(header) if h}
+        if "beskrivelse" not in kol:
+            continue
+
+        def felt(row, navn):
+            i = kol.get(navn)
+            if i is None or i >= len(row) or row[i] is None:
+                return None
+            s = str(row[i]).strip()
+            return s or None
+
+        for row in it:
+            navn = felt(row, "beskrivelse")
+            if not navn:
+                continue
+            rows.append(dict(
+                kategori=ws.title.strip(),
+                navn=navn,
+                producent=felt(row, "producent"),
+                butik=felt(row, "butik"),
+                link=felt(row, "link"),
+                erstatning_for=felt(row, "bruges  fx som erstatning for")
+                               or felt(row, "bruges fx som erstatning for"),
+                valideret=felt(row, "valideret") is not None,
+            ))
+
+    with SessionLocal() as db:
+        hh = default_household(db)
+        udskiftet = (
+            db.query(ImportedProduct)
+            .filter(ImportedProduct.household_id == hh.id)
+            .delete()
+        )
+        for r in rows:
+            db.add(ImportedProduct(household_id=hh.id, **r))
+        db.commit()
+    valideret = sum(r["valideret"] for r in rows)
+    print(f"Importerede {len(rows)} varer ({valideret} markeret valideret; "
+          f"{udskiftet} gamle rækker udskiftet).")
 
 
 def migrate(kilde: str, maal: str | None = None) -> None:
@@ -117,8 +183,10 @@ if __name__ == "__main__":
         reindex()
     elif cmd == "migrate":
         migrate(*sys.argv[2:])
+    elif cmd in ("import", "import-liste"):
+        import_liste(*sys.argv[2:])
     else:
         sys.exit(
             "Brug: python -m app.cli "
-            "[adduser EMAIL NAVN [ROLLE] | reindex | migrate KILDE [MÅL]]"
+            "[adduser EMAIL NAVN [ROLLE] | reindex | migrate KILDE [MÅL] | import FIL.xlsx]"
         )

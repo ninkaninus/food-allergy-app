@@ -231,6 +231,28 @@ class Ingredient(Base):
     seen_count: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class ImportedProduct(Base):
+    """
+    Jeres gamle godkendt-liste, importeret fra regnearket. Rækkerne har
+    INGEN EAN og kan derfor aldrig blive til domme — domme hænger på
+    (produkt, allergen), og det her er kun navne. Listen er opslagsværk
+    og scan-hint, indtil varen scannes og bekræftes rigtigt.
+    """
+
+    __tablename__ = "imported_product"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    household_id: Mapped[int] = mapped_column(ForeignKey("household.id"), index=True)
+    kategori: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    navn: Mapped[str] = mapped_column(String(400))
+    producent: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    butik: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    link: Mapped[str | None] = mapped_column(Text, nullable=True)
+    erstatning_for: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    valideret: Mapped[bool] = mapped_column(Boolean, default=False)
+    kilde: Mapped[str] = mapped_column(String(120), default="regneark")
+    imported_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
+
+
 class ProductIngredient(Base):
     __tablename__ = "product_ingredient"
     __table_args__ = (UniqueConstraint("product_ean", "ingredient_id"),)
