@@ -262,6 +262,35 @@ class ImportedProduct(Base):
     imported_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
 
 
+class ProductPhoto(Base):
+    """
+    Jeres egne billeder af varen: forsiden og deklarationen.
+
+    Fjerde tabel af samme grund som `verdict` og `imported_product`: det
+    er jeres arbejde, ikke Open Food Facts' data (se NOTICE.md). Selve
+    filerne ligger på disken under DATA_DIR/billeder — ikke som blobs i
+    databasen — så de følger med jeres backup af appdata, og databasen
+    forbliver lille nok til at kopiere.
+
+    Ét billede pr. (vare, slags): et nyt foto erstatter det gamle. Vi
+    gemmer ikke historik; det ville vokse uden loft, og formålet er at
+    kunne læse etiketten igen, ikke at føre arkiv.
+    """
+
+    __tablename__ = "product_photo"
+    __table_args__ = (UniqueConstraint("household_id", "product_ean", "slags"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    household_id: Mapped[int] = mapped_column(ForeignKey("household.id"), index=True)
+    product_ean: Mapped[str] = mapped_column(ForeignKey("product.ean"), index=True)
+    slags: Mapped[str] = mapped_column(String(16))       # front | deklaration
+    fil: Mapped[str] = mapped_column(String(200))
+    bredde: Mapped[int | None] = mapped_column(nullable=True)
+    hoejde: Mapped[int | None] = mapped_column(nullable=True)
+    taget_af: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    taget_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
+
+
 class ProductIngredient(Base):
     __tablename__ = "product_ingredient"
     __table_args__ = (UniqueConstraint("product_ean", "ingredient_id"),)

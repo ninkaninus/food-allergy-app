@@ -136,6 +136,13 @@ butikker og 583 varer uden stregkoder. Den er en tredje tabel af samme grund:
 den er hverken OFF's data eller en dom. I appen er den ÉN liste sammen med de
 scannede varer (`/api/soeg` slår dem sammen i visningen, ikke i data).
 
+**`product_photo` er jeres billeder** af forside og deklaration. Selve
+filerne ligger på disken under `DATA_DIR/billeder`, ikke som blobs i
+databasen — så de følger med backuppen af appdata, og databasen bliver
+ved med at være lille nok til at kopiere. Ét billede pr. (vare, slags);
+et nyt erstatter det gamle. Et foto er dokumentation, ikke bevis: det
+gør ingen vare grøn.
+
 `imported_product.ean` er koblingen, der giver en række værdi: uden EAN kan
 den aldrig bære en dom. Den sættes kun af et menneske
 (`POST /api/liste/{id}/stregkode`, kræver login) og er **ikke** en dom — en

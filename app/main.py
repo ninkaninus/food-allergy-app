@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import io
 import os
 import re
 from dataclasses import asdict
@@ -34,6 +35,7 @@ from .version import VERSION
 from .models import (
     Allergen,
     ImportedProduct,
+    ProductPhoto,
     User,
     Product,
     Profile,
@@ -461,6 +463,7 @@ async def scan(
         "source": source,
         "result": result,
         "gammel_liste": _gammel_liste_hint(db, hh.id, product.name, product.brand, ean),
+        "fotos": _foto_svar(db, hh.id, ean),
         "product": {
             "name": product.name,
             "brand": product.brand,
@@ -1011,6 +1014,145 @@ def product_filter(
 # --------------------------------------------------------------------------
 # OCR
 # --------------------------------------------------------------------------
+
+
+SLAGS = {"front": "Forside", "deklaration": "Deklaration"}
+
+
+def _billedmappe() -> Path:
+    from .db import DATA_DIR
+
+    mappe = DATA_DIR / "billeder"
+    mappe.mkdir(parents=True, exist_ok=True)
+    return mappe
+
+
+def _rens(ean: str, slags: str) -> tuple[str, str]:
+    """Kun cifre og en kendt slags — filnavnet bygges af de to, så der er
+    ingen vej fra en URL til en sti, brugeren selv har fundet på."""
+    r = "".join(ch for ch in ean if ch.isdigit())
+    if len(r) < 8:
+        raise HTTPException(400, "stregkoden ser ikke rigtig ud")
+    if slags not in SLAGS:
+        raise HTTPException(400, f"slags skal være en af: {', '.join(SLAGS)}")
+    return r, slags
+
+
+def _foto_svar(db: Session, hh_id: int, ean: str) -> dict:
+    ud = {}
+    for f in db.scalars(
+        select(ProductPhoto).where(
+            ProductPhoto.household_id == hh_id, ProductPhoto.product_ean == ean
+        )
+    ):
+        ud[f.slags] = {
+            "url": f"/api/products/{ean}/foto/{f.slags}?v={int(f.taget_at.timestamp())}",
+            "taget_at": f.taget_at.isoformat(timespec="minutes"),
+            "taget_af": f.taget_af,
+            "bredde": f.bredde,
+            "hoejde": f.hoejde,
+        }
+    return ud
+
+
+@app.post("/api/products/{ean}/foto")
+async def gem_foto(
+    ean: str,
+    slags: str = "deklaration",
+    image: UploadFile = File(...),
+    user: User = Depends(require_curator),
+    db: Session = Depends(get_session),
+):
+    """
+    Gem et billede af varen — forsiden eller deklarationen — så I kan
+    læse etiketten igen derhjemme uden at have pakken.
+
+    Billedet er jeres eget og bliver på serveren. Det er IKKE et bevis:
+    et foto gør ingen vare grøn, og dommen kommer stadig fra motoren
+    eller fra en bekræftelse mod emballagen.
+    """
+    from PIL import Image, ImageOps
+
+    ean, slags = _rens(ean, slags)
+    data = await image.read()
+    if len(data) > 12 * 1024 * 1024:
+        raise HTTPException(413, "Billedet er for stort (max 12 MB).")
+    try:
+        img = Image.open(io.BytesIO(data))
+        img = ImageOps.exif_transpose(img).convert("RGB")
+    except Exception as e:
+        raise HTTPException(400, f"Kunne ikke læse billedet: {e}")
+
+    # 1600 px er rigeligt til at læse en deklaration på en telefon, og
+    # holder 583 varer × 2 billeder nede i et par hundrede MB.
+    img.thumbnail((1600, 1600), Image.LANCZOS)
+    fil = f"{ean}_{slags}.jpg"
+    img.save(_billedmappe() / fil, "JPEG", quality=82, optimize=True)
+
+    hh = default_household(db)
+    if db.get(Product, ean) is None:
+        # Ukendt stregkode er netop dér, et billede er mest værd — så
+        # opret varen, som bekræftelsen også gør.
+        db.add(Product(ean=ean, source="manual"))
+    f = db.scalar(
+        select(ProductPhoto).where(
+            ProductPhoto.household_id == hh.id,
+            ProductPhoto.product_ean == ean,
+            ProductPhoto.slags == slags,
+        )
+    )
+    if f is None:
+        f = ProductPhoto(household_id=hh.id, product_ean=ean, slags=slags)
+        db.add(f)
+    f.fil = fil
+    f.bredde, f.hoejde = img.size
+    f.taget_af = user.name
+    f.taget_at = now().replace(tzinfo=None)
+    db.commit()
+    return {"ok": True, "slags": slags, "fotos": _foto_svar(db, hh.id, ean)}
+
+
+@app.get("/api/products/{ean}/foto/{slags}")
+def hent_foto(ean: str, slags: str, db: Session = Depends(get_session)):
+    """Åben læsning som resten — der er ingen personoplysninger i et
+    billede af en pakke rugbrød."""
+    ean, slags = _rens(ean, slags)
+    hh = default_household(db)
+    f = db.scalar(
+        select(ProductPhoto).where(
+            ProductPhoto.household_id == hh.id,
+            ProductPhoto.product_ean == ean,
+            ProductPhoto.slags == slags,
+        )
+    )
+    sti = _billedmappe() / f"{ean}_{slags}.jpg"
+    if f is None or not sti.exists():
+        raise HTTPException(404, "intet billede")
+    return FileResponse(sti, media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=86400"})
+
+
+@app.delete("/api/products/{ean}/foto/{slags}")
+def slet_foto(
+    ean: str,
+    slags: str,
+    _: User = Depends(require_curator),
+    db: Session = Depends(get_session),
+):
+    ean, slags = _rens(ean, slags)
+    hh = default_household(db)
+    f = db.scalar(
+        select(ProductPhoto).where(
+            ProductPhoto.household_id == hh.id,
+            ProductPhoto.product_ean == ean,
+            ProductPhoto.slags == slags,
+        )
+    )
+    if f is not None:
+        db.delete(f)
+        db.commit()
+    (_billedmappe() / f"{ean}_{slags}.jpg").unlink(missing_ok=True)
+    return {"ok": True}
 
 
 @app.post("/api/ocr")

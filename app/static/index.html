@@ -130,6 +130,27 @@ details.sec>summary{font-size:11px;letter-spacing:.16em;text-transform:uppercase
 .hits .badge{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;
   padding:2px 6px;border:1px solid var(--rule);color:var(--muted)}
 
+.fotos{display:flex;gap:10px;padding:12px var(--pad) 0;flex-wrap:wrap}
+.foto{border:1.5px solid var(--rule);background:var(--surface);padding:0;cursor:zoom-in;
+  width:92px;flex:none}
+.foto img{display:block;width:100%;height:70px;object-fit:cover}
+.foto .lab{display:block;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+  font-weight:700;color:var(--muted);padding:4px 5px;text-align:left}
+
+#lup{position:fixed;inset:0;z-index:50;background:rgba(9,12,14,.94);display:flex;
+  flex-direction:column}
+#lupBar{display:flex;justify-content:space-between;align-items:center;gap:12px;
+  padding:12px var(--pad);color:var(--paper);font-size:13px}
+#lupBar button{background:none;border:1.5px solid rgba(228,233,236,.5);color:var(--paper);
+  padding:7px 12px;font-weight:700}
+#lupScroll{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;touch-action:pinch-zoom;
+  display:flex;align-items:flex-start;justify-content:center;padding:0 0 20px}
+/* Centrering gør venstre kant af et forstørret billede uopnåelig — så når
+   det er større end skærmen, starter vi til venstre og lader det scrolle. */
+#lupScroll.fuld{justify-content:flex-start}
+#lupImg{max-width:100%;height:auto;display:block}
+#lupImg.fuld{max-width:none;width:auto}
+
 .hits{list-style:none;margin:12px 0 0;padding:0}
 .hits li{display:flex;justify-content:space-between;gap:12px;padding:10px 0;
   border-bottom:1px solid var(--rule);font-size:14px}
@@ -176,12 +197,14 @@ footer a{color:var(--muted)}
         <p id="explain"></p>
       </div>
       <div class="prod" id="prod"></div>
+      <div class="fotos" id="fotoRk" hidden></div>
       <ul class="rows" id="rows"></ul>
       <div class="decl">
         <h3>Deklaration, som motoren læste den</h3>
         <div class="body" id="decl"></div>
       </div>
       <div class="acts">
+        <button class="btn ghost" id="frontBtn">Fotografér forsiden</button>
         <button class="btn ghost" id="ocrBtn">Fotografér deklaration</button>
         <button class="btn ghost" id="ocrPickBtn">Brug gemt billede</button>
         <button class="btn" id="confirmBtn">Bekræft mod emballagen</button>
@@ -193,6 +216,7 @@ footer a{color:var(--muted)}
          har gemte billeder deres egen knap og et input uden capture. -->
     <input type="file" id="ocrFile" accept="image/*" capture="environment" hidden>
     <input type="file" id="ocrPick" accept="image/*" hidden>
+    <input type="file" id="frontFile" accept="image/*" capture="environment" hidden>
 
     <section class="sec" id="confirmPanel" hidden>
       <h3>Bekræft mod emballagen</h3>
@@ -309,6 +333,17 @@ footer a{color:var(--muted)}
     <p>Hjælpeværktøj, ikke en medicinsk anordning. Læs altid etiketten.</p>
     <p><span id="verTag">AllergiScan</span> · <a href="#" id="relLink">Nyheder</a></p>
   </footer>
+</div>
+
+<div id="lup" hidden>
+  <div id="lupBar">
+    <span id="lupTxt"></span>
+    <span>
+      <button id="lupZoom">Forstør</button>
+      <button id="lupLuk">Luk</button>
+    </span>
+  </div>
+  <div id="lupScroll"><img id="lupImg" alt=""></div>
 </div>
 
 <nav class="tabs">
@@ -447,6 +482,8 @@ function render(d){
     lookup(d.ean);            // hent igen, så linjen viser den nye tilstand
   });
 
+  visFotos(d);
+
   $('#rows').innerHTML = (d.allergens||[]).map(a => `
     <li><span class="dot ${a.state}"></span>
       <div><div class="name">${esc(a.name)}</div>
@@ -534,6 +571,76 @@ $('#camBtn').onclick = async () => {
   tick();
 };
 
+/* ---------- billeder ---------- */
+function visFotos(d){
+  const f = d.fotos || {};
+  const navne = {front: 'Forside', deklaration: 'Deklaration'};
+  const ordre = ['front', 'deklaration'].filter(k => f[k]);
+  const gl = $('#fotoRk');
+  if(!ordre.length){ gl.innerHTML = ''; gl.hidden = true; return; }
+  gl.hidden = false;
+  gl.innerHTML = ordre.map(k => `
+    <button class="foto" data-foto="${k}" data-url="${esc(f[k].url)}"
+      title="Taget ${esc(f[k].taget_at.replace('T',' '))}${f[k].taget_af ? ' af '+esc(f[k].taget_af) : ''}">
+      <img src="${esc(f[k].url)}" alt="${navne[k]}" loading="lazy">
+      <span class="lab">${navne[k]}</span></button>`).join('');
+  gl.querySelectorAll('.foto').forEach(b => b.onclick = () => aabnLup(
+    b.dataset.url, `${navne[b.dataset.foto]} · ${f[b.dataset.foto].taget_at.replace('T',' ')}`));
+}
+
+function aabnLup(url, tekst){
+  $('#lupImg').src = url;
+  $('#lupImg').classList.remove('fuld');
+  $('#lupScroll').classList.remove('fuld');
+  $('#lupZoom').textContent = 'Forstør';
+  $('#lupTxt').textContent = tekst || '';
+  $('#lup').hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+function lukLup(){
+  $('#lup').hidden = true;
+  $('#lupImg').src = '';
+  document.body.style.overflow = '';
+}
+$('#lupLuk').onclick = lukLup;
+$('#lup').onclick = e => { if(e.target.id === 'lupScroll' || e.target.id === 'lup') lukLup(); };
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && !$('#lup').hidden) lukLup(); });
+// Forstør: vis billedet i sin egen opløsning og lad det scrolle — det er
+// dét, der gør småt tryk på en deklaration læsbart. Pinch-zoom virker
+// oveni på telefonen.
+$('#lupZoom').onclick = () => {
+  const fuld = $('#lupImg').classList.toggle('fuld');
+  const sc = $('#lupScroll');
+  sc.classList.toggle('fuld', fuld);
+  $('#lupZoom').textContent = fuld ? 'Tilpas' : 'Forstør';
+  // start midt i billedet — det er dér, teksten plejer at stå
+  sc.scrollLeft = fuld ? (sc.scrollWidth - sc.clientWidth) / 2 : 0;
+};
+
+async function gemFoto(fil, slags){
+  if(!LAST?.ean) return null;
+  const fd = new FormData(); fd.append('image', fil);
+  const r = await fetch(`/api/products/${LAST.ean}/foto?slags=${slags}`, {method:'POST', body:fd});
+  if(!r.ok) return null;
+  const d = await r.json();
+  LAST.fotos = d.fotos;
+  visFotos(LAST);
+  return d;
+}
+
+$('#frontBtn').onclick = () => {
+  if(!USER){ $('#scanHint').textContent = 'Log ind under Indstillinger for at gemme billeder.'; return; }
+  if(!LAST?.ean){ $('#scanHint').textContent = 'Scan eller slå en vare op først.'; return; }
+  $('#frontFile').click();
+};
+$('#frontFile').onchange = async e => {
+  const f = e.target.files?.[0];
+  e.target.value = '';
+  if(!f) return;
+  $('#scanHint').textContent = 'Gemmer billedet…';
+  $('#scanHint').textContent = await gemFoto(f, 'front') ? '' : 'Billedet kunne ikke gemmes.';
+};
+
 /* ---------- OCR ---------- */
 const ocrGuard = () => {
   if(!USER){ $('#scanHint').textContent = 'Log ind under Indstillinger for at bruge OCR.'; return false; }
@@ -550,6 +657,9 @@ $('#ocrFile').onchange = $('#ocrPick').onchange = async e => {
   const fd = new FormData(); fd.append('image', f);
   const r = await fetch('/api/ocr', {method:'POST', body:fd});
   e.target.value = '';
+  // Samme billede gemmes som deklarationsfoto — så kan I læse etiketten
+  // igen derhjemme uden at fotografere den to gange.
+  gemFoto(f, 'deklaration');
   if(!r.ok){ $('#ocrStatus').textContent = 'OCR fejlede ('+r.status+').'; return; }
   const d = await r.json();
   if(!d.ok){ $('#ocrStatus').textContent = d.error; return; }

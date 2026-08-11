@@ -6,4 +6,4 @@ Reglen (se CLAUDE.md): enhver brugervendt ændring bumper VERSION her og
 får en post øverst i CHANGELOG.md. En test håndhæver, at de to følges ad.
 """
 
-VERSION = "0.13.0"
+VERSION = "0.14.0"

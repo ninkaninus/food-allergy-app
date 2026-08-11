@@ -3,6 +3,19 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.14.0 — 11. august 2026
+
+- **Nu kan I gemme billeder af varen** — både forsiden og
+  deklarationen — så I kan læse etiketten igen derhjemme uden at have
+  pakken. Billederne bliver på jeres egen server.
+- **Fotograferer I deklarationen for at læse den, gemmes billedet
+  automatisk.** I skal ikke tage det samme billede to gange.
+- **Tryk på et billede for at forstørre det.** »Forstør« viser det i
+  fuld opløsning, så småt tryk kan læses — og I kan stadig zoome med
+  fingrene oveni.
+- Et billede er dokumentation, ikke en godkendelse: en vare bliver
+  ikke grøn af at have et foto.
+
 ## 0.13.0 — 11. august 2026
 
 - **Nu kan I knytte arkets varer til en stregkode.** Det er dét, der
