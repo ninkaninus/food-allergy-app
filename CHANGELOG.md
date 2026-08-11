@@ -3,6 +3,17 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.8.0 — 11. august 2026
+
+- **OCR er kalibreret mod 106 rigtige butiksfotos.** Andelen med god
+  læsning steg fra 39 til 48 af 106, og andelen, der måtte afvises,
+  faldt fra 39 til 28.
+- **Etiketter, der vender på tværs, læses nu.** Mange pakker ligger på
+  siden, når man fotograferer dem — appen opdager selv rotationen og
+  vender billedet, før den læser.
+- OCR er blevet hurtigere på svære billeder: blok-søgningen genbruger
+  arbejde i stedet for at læse billedet forfra.
+
 ## 0.7.0 — 11. august 2026
 
 - **OCR er kalibreret mod syv rigtige fotos af en mørk pose** og læser

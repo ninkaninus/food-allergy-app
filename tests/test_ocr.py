@@ -187,6 +187,24 @@ def _naerbillede_lys_paa_moerk():
 
 
 @kraever_tesseract
+def test_etiket_paa_tvaers_rettes_af_osd():
+    """Etiketten sidder tit 90° på pakken — kameraet vendte rigtigt, det
+    gjorde pakken ikke, så EXIF ved ingenting. Tesseracts OSD skal opdage
+    det. (OSD kræver en rimelig mængde tekst; på meget sparsomme billeder
+    melder den pas, og så gælder hintet om at tage et nyt billede.)"""
+    import io
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(_deklarationsfoto(gradient=False, glans=False)))
+    buf = io.BytesIO()
+    img.rotate(90, expand=True).save(buf, "JPEG", quality=85)  # ingen EXIF
+    r = read_declaration(buf.getvalue())
+    assert r["ok"]
+    assert "hvedemel" in r["text"].lower()
+    assert r["confidence"] >= 70
+
+
+@kraever_tesseract
 def test_lys_tekst_uden_markoer_laeses():
     r = read_declaration(_naerbillede_lys_paa_moerk())
     assert r["ok"]

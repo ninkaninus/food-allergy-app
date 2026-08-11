@@ -118,42 +118,103 @@ def _reconstruct(tsv: dict, threshold: int) -> tuple[str, float]:
     return "".join(parts), mean
 
 
-def _find_declaration_crop(gray: Image.Image, lang: str) -> Image.Image | None:
+def _crop_ved_markoer(proc: Image.Image, tsv: dict) -> Image.Image | None:
+    """Finder 'Ingredienser'-markøren i en ordliste og beskærer til blokken.
+    Markør og slutmarkør matches fuzzy, for de er selv OCR-læste."""
+    marker = None
+    for i in range(len(tsv["text"])):
+        t = tsv["text"][i].strip()
+        if len(t) >= 8 and _ligner(t, "ingredienser", 3):
+            marker = (tsv["top"][i], tsv["height"][i])
+            break
+    if marker is None:
+        return None
+    top, h = marker
+    end = None
+    for target in ("opbevaring", "naeringsindhold", "naeringsdeklaration", "nutrition"):
+        for i in range(len(tsv["text"])):
+            t = tsv["text"][i].strip()
+            if len(t) >= 7 and tsv["top"][i] > top + h and _ligner(t, target, 2):
+                if end is None or tsv["top"][i] < end:
+                    end = tsv["top"][i]
+    y0 = max(0, top - 2 * h)
+    y1 = end - h // 2 if end else min(proc.height, top + 16 * h)
+    if y1 - y0 < 2 * h:
+        return None
+    return proc.crop((0, y0, proc.width, y1))
+
+
+def _find_declaration_crop(
+    gray: Image.Image,
+    lang: str,
+    tsvs: dict[bool, dict] | None = None,
+    first_invert: bool = False,
+) -> Image.Image | None:
     """
     Leder efter 'Ingredienser'-markøren og beskærer til deklarationsblokken.
 
     Prøver begge polariteter: mange danske poser har LYS tekst på mørk
     bund, og dér er den almindelige binarisering (mørk tekst = tekst)
-    blind. Markøren og slutmarkøren ('Opbevaring', 'Næringsindhold')
-    matches fuzzy, for de er selv OCR-læste.
+    blind. Ordlisterne fra fuldbillede-læsningen genbruges først — det
+    sparer de langsomme psm 3-kørsler i de fleste tilfælde.
     """
-    for invert in (False, True):
+    order = [first_invert, not first_invert]
+    for invert in order:
+        tsv = (tsvs or {}).get(invert)
+        if tsv is None:
+            continue
+        crop = _crop_ved_markoer(_binarize(ImageOps.invert(gray) if invert else gray), tsv)
+        if crop is not None:
+            return crop
+    # psm 3 segmenterer nogle gange blokke, som psm 6 kører sammen — sidste forsøg
+    for invert in order:
         proc = _binarize(ImageOps.invert(gray) if invert else gray)
         try:
             tsv = _tsv(proc, lang, 3)
         except pytesseract.TesseractError:
             continue
-        marker = None
-        for i in range(len(tsv["text"])):
-            t = tsv["text"][i].strip()
-            if len(t) >= 8 and _ligner(t, "ingredienser", 3):
-                marker = (tsv["top"][i], tsv["height"][i])
-                break
-        if marker is None:
-            continue
-        top, h = marker
-        end = None
-        for target in ("opbevaring", "naeringsindhold", "naeringsdeklaration", "nutrition"):
-            for i in range(len(tsv["text"])):
-                t = tsv["text"][i].strip()
-                if len(t) >= 7 and tsv["top"][i] > top + h and _ligner(t, target, 2):
-                    if end is None or tsv["top"][i] < end:
-                        end = tsv["top"][i]
-        y0 = max(0, top - 2 * h)
-        y1 = end - h // 2 if end else min(proc.height, top + 16 * h)
-        if y1 - y0 >= 2 * h:
-            return proc.crop((0, y0, proc.width, y1))
+        crop = _crop_ved_markoer(proc, tsv)
+        if crop is not None:
+            return crop
     return None
+
+
+def _candidates(gray: Image.Image, lang: str) -> tuple[tuple[str, float, bool], dict[bool, dict]]:
+    """
+    Læser hele billedet i begge polariteter; bedste filtrerede konfidens
+    vinder. Mange danske poser har LYS tekst på mørk bund, og dér er
+    mørk-tekst-binariseringen blind. Er den mørke læsning god (>= 80,
+    normaltilfældet), springes den lyse over.
+    """
+    best = ("", -1.0, False)
+    tsvs: dict[bool, dict] = {}
+    for invert in (False, True):
+        proc = _binarize(ImageOps.invert(gray) if invert else gray)
+        tsv = _tsv(proc, lang, 6)
+        tsvs[invert] = tsv
+        text, conf = _reconstruct(tsv, threshold=10)
+        if conf > best[1]:
+            best = (text, conf, invert)
+        if best[1] >= 80:
+            break
+    return best, tsvs
+
+
+def _osd_rotation(proc: Image.Image) -> int:
+    """
+    Tesseracts orienterings-detektion: hvor mange grader skal billedet
+    drejes for at teksten vender rigtigt? Etiketter sidder tit 90° på
+    pakken, og EXIF ved det ikke — kameraet vendte rigtigt, det gjorde
+    pakken ikke. Under konfidens 2 er svaret gætværk og ignoreres.
+    """
+    try:
+        osd = pytesseract.image_to_osd(proc)
+    except Exception:
+        return 0
+    m = re.search(r"Rotate:\s*(\d+)", osd)
+    c = re.search(r"Orientation confidence:\s*([\d.]+)", osd)
+    rot = int(m.group(1)) % 360 if m else 0
+    return rot if rot and c and float(c.group(1)) >= 2.0 else 0
 
 
 def extract_section(text: str) -> str:
@@ -209,25 +270,32 @@ def read_declaration(data: bytes, lang: str = "dan+eng") -> dict:
 
     gray = _grayscale(img)
 
-    # Begge polariteter er fuldgyldige kandidater. Mange danske poser har
-    # LYS tekst på mørk bund, og et nærbillede af sådan en deklaration —
-    # uden "Ingredienser" i rammen — kan to-pas-redningen nedenfor ikke
-    # redde, for den finder aldrig sin markør. Læsningen med højest
-    # filtreret konfidens vinder; er mørk-tekst-læsningen god (>= 80,
-    # normaltilfældet), springes den lyse over.
-    raw, mean_conf = "", -1.0
     try:
-        for invert in (False, True):
-            proc = _binarize(ImageOps.invert(gray) if invert else gray)
-            text, conf = _reconstruct(_tsv(proc, lang, 6), threshold=10)
-            if conf > mean_conf:
-                raw, mean_conf = text, conf
-            if mean_conf >= 80:
-                break
+        (raw, mean_conf, vinder), tsvs = _candidates(gray, lang)
     except pytesseract.TesseractError as e:
         return {"ok": False, "error": f"Tesseract fejlede: {e}"}
     except pytesseract.TesseractNotFoundError:
         return {"ok": False, "error": "Tesseract er ikke installeret i containeren."}
+
+    # Vender etiketten 90° på pakken? Målt på et rigtigt foto af pølser i
+    # mørk pose med etiketten på langs: uden rotation suppe (38 %), med
+    # OSD-rotation fandt redningen 'Ingredienser' og læste blokken (73 %).
+    if mean_conf < 65:
+        # OSD skal se bogstaverne, og vi ved ikke hvilken polaritet de
+        # bor i — prøv vinderen først, så den anden.
+        rot = 0
+        for invert in (vinder, not vinder):
+            rot = _osd_rotation(_binarize(ImageOps.invert(gray) if invert else gray))
+            if rot:
+                break
+        if rot:
+            roteret = gray.rotate(-rot, expand=True)
+            try:
+                (raw2, conf2, vinder2), tsvs2 = _candidates(roteret, lang)
+            except pytesseract.TesseractError:
+                raw2, conf2 = "", -1.0
+            if conf2 > mean_conf:
+                gray, raw, mean_conf, vinder, tsvs = roteret, raw2, conf2, vinder2, tsvs2
     mean_conf = max(mean_conf, 0.0)
 
     # To-pas-redning for fotos af HELE posen. Målt på et rigtigt foto
@@ -236,7 +304,7 @@ def read_declaration(data: bytes, lang: str = "dan+eng") -> dict:
     # deklarationen — inklusive 'bananchips* (banan*', som er dét,
     # matcheren skal se. psm 4 (én spalte) slog psm 6 på croppen.
     if mean_conf < 65:
-        crop = _find_declaration_crop(gray, lang)
+        crop = _find_declaration_crop(gray, lang, tsvs, vinder)
         if crop is not None:
             # Tærskel 10: konfidens 0 er dér, grafik-suppen bor, men alt
             # med bare minimal konfidens beholdes — et tabt allergenord
