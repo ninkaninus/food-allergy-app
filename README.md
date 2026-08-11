@@ -97,7 +97,7 @@ er en uopløst ingrediens usynlig — og usynlig ligner fraværende.
 
 |  | Indeks (`ingredients.py`) | Regelsæt (`matcher.py`) |
 |---|---|---|
-| Dækning | alle ingredienser, alle varer | fire allergener |
+| Dækning | alle ingredienser, alle varer | 17 allergener (EU-14 + jordbær, banan, tomat) |
 | Præcision | lav, substring-matchning | høj, maskering og ordgrænser |
 | Fejler mod | **overekskludering** | **overadvarsel** |
 | Bruges til | at finde og filtrere | at afgøre sikkerhed |

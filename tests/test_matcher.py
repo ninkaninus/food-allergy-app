@@ -81,10 +81,12 @@ def test_ocr_tolerance_catches_garbled(slug, text, expected):
     assert R.evaluate(slug, text, ocr=True).state is expected
 
 CLEAN = [
+    # skal være rene for ALLE allergener — tahin (sesam) og tomat røg ud,
+    # da regelsættet voksede til EU-14 + tomat
     "Rismel, solsikkeolie, salt, gærekstrakt",
     "Vand, sukker, citronsyre, farve E160a",
-    "Kikærter, tahin, hvidløg, spidskommen, olivenolie",
-    "Tomat, basilikum, oregano, havsalt, peber",
+    "Kikærter, hvidløg, spidskommen, olivenolie, citronsaft",
+    "Agurk, basilikum, oregano, havsalt, peber",
 ]
 
 @pytest.mark.parametrize("text", CLEAN)
@@ -101,3 +103,116 @@ def test_ocr_mode_still_never_returns_free():
 def test_exclusions_survive_ocr_mode():
     """'ægte vanilje' må heller ikke give æg når tolerancen er slået til."""
     assert R.evaluate("aeg", "Sukker, ægte vanilje", ocr=True).state is not State.CONTAINS
+
+
+# --- EU-14 + tomat ---------------------------------------------------------
+# Én positiv og én orddannelses-negativ pr. regel. Negativerne er ord, hvor
+# allergenet står bagest eller slet ikke er der — naiv substring ville
+# ramme dem alle.
+
+EU14 = [
+    # gluten
+    ("gluten", "Hvedemel, vand, gær, salt", State.CONTAINS),
+    ("gluten", "Bygmalt, humle, vand", State.CONTAINS),
+    ("gluten", "Havregryn, rosiner", State.CONTAINS),
+    ("gluten", "Boghvedemel, bagepulver, salt", State.UNKNOWN),
+    ("gluten", "Glukosesirup, maltodextrin, aroma", State.UNKNOWN),
+    # krebsdyr
+    ("krebsdyr", "Rejer 40%, vand, salt", State.CONTAINS),
+    ("krebsdyr", "Jomfruhummer, citron", State.CONTAINS),
+    ("krebsdyr", "Skaldyrsfond, vand", State.TRACE_RISK),
+    # fisk
+    ("fisk", "Torskefilet, rasp, rapsolie", State.CONTAINS),
+    ("fisk", "Ansjoser, olivenolie, salt", State.CONTAINS),
+    ("fisk", "Tunge, persillesovs", State.TRACE_RISK),   # søtunge eller oksetunge?
+    ("fisk", "Oksetunge, lage, salt", State.UNKNOWN),    # okse — ikke fisk
+    # jordnødder er en bælgfrugt med egen post — og IKKE en nød
+    ("jordnoed", "Jordnøddeolie, salt", State.CONTAINS),
+    ("noedder", "Jordnøddeolie, salt", State.UNKNOWN),
+    # soja — og pointen med per-allergen-regler: sojamælk er soja, ikke mælk
+    ("soja", "Sojalecithin, kakaomasse", State.CONTAINS),
+    ("soja", "Sojamælk, havregryn", State.CONTAINS),
+    ("maelkeprotein", "Sojamælk, vand", State.UNKNOWN),
+    # nødder
+    ("noedder", "Hakkede hasselnødder 13%", State.CONTAINS),
+    ("noedder", "Marcipan, sukker", State.CONTAINS),
+    ("noedder", "Mandelmælk, vand", State.CONTAINS),
+    ("maelkeprotein", "Mandelmælk, vand", State.UNKNOWN),
+    ("noedder", "Revet muskatnød, kanel", State.UNKNOWN),
+    ("noedder", "Kokosmel, kokosnødder, sukker", State.UNKNOWN),
+    ("noedder", "Sukker, mandelaroma", State.TRACE_RISK),
+    # selleri, sennep, sesam
+    ("selleri", "Knoldselleri, løg, gulerod", State.CONTAINS),
+    ("sennep", "Dijonsennep, honning", State.CONTAINS),
+    ("sesam", "Tahin (sesampasta), kikærter", State.CONTAINS),
+    ("sesam", "Hummus med paprika", State.TRACE_RISK),
+    # sulfit — men sulfat er noget andet
+    ("sulfit", "Tørrede abrikoser, konserveringsmiddel e220", State.CONTAINS),
+    ("sulfit", "Hvidvin, natriummetabisulfit", State.CONTAINS),
+    ("sulfit", "Mineralsalte (magnesiumsulfat)", State.UNKNOWN),
+    # lupin
+    ("lupin", "Lupinmel, vand", State.CONTAINS),
+    # bløddyr
+    ("bloeddyr", "Blåmuslinger, hvidvin, persille", State.CONTAINS),
+    ("bloeddyr", "Østerssauce, sukker", State.CONTAINS),
+    # tomat
+    ("tomat", "Tomatpuré 20%, løg", State.CONTAINS),
+    ("tomat", "Ketchup, sennepsfrø", State.CONTAINS),
+    ("tomat", "Aromatiseret sort te", State.UNKNOWN),
+]
+
+@pytest.mark.parametrize("slug,text,expected", EU14)
+def test_eu14_state(slug, text, expected):
+    assert R.evaluate(slug, text).state is expected
+
+
+def test_all_eu14_covered():
+    """Alle 14 EU-allergener skal findes i regelsættet med korrekt OFF-tag."""
+    expected = {
+        "en:gluten", "en:crustaceans", "en:eggs", "en:fish", "en:peanuts",
+        "en:soybeans", "en:milk", "en:nuts", "en:celery", "en:mustard",
+        "en:sesame-seeds", "en:sulphur-dioxide-and-sulphites", "en:lupin",
+        "en:molluscs",
+    }
+    actual = {
+        r["meta"]["off_tag"]
+        for r in R.allergens.values()
+        if r["meta"].get("eu14")
+    }
+    assert actual == expected
+
+
+# OCR-fuzzy leder i vinduer INDE i sammensatte ord, så et uskyldigt ord ét
+# redigeringstrin fra et allergen bliver rødt, hvis det ikke står i exclude.
+# Hvert af de her ord har fundet vej til exclude af netop den grund.
+
+OCR_WINDOW_TRAPS = [
+    ("gluten", "Hvide bønner, vand, salt"),          # hvide ≈ hvede
+    ("gluten", "Smeltet smør, sukker"),              # smelt ≈ spelt
+    ("gluten", "Boghvedemel, vand"),                 # vinduet "hvede" i boghvede
+    ("krebsdyr", "Varenummer 1234, sukker"),         # nummer ≈ hummer
+    ("krebsdyr", "Grillet kylling, salt"),           # grill ≈ krill
+    ("fisk", "Norsk rapsolie, salt"),                # norsk ≈ torsk
+    ("noedder", "Rystes om nødvendigt før brug"),    # nødvendig ≈ nødde
+    ("noedder", "Revet muskatnød, kanel"),           # vinduet "nødde" i muskatnød
+    ("sesam", "Tahiti-vanilje, fløde"),              # tahiti ≈ tahin
+    ("sulfit", "Magnesiumsulfat, kalk"),             # sulfat ≈ sulfit
+    ("bloeddyr", "Kanelsnegle med remonce"),         # vinduet "snegl" i kanelsnegle
+    ("bloeddyr", "Sild fanget i Østersøen"),         # vinduet "østers" i østersøen
+    ("tomat", "Aromatiseret te, sukker"),            # vinduet "romat" i aromatiseret
+]
+
+@pytest.mark.parametrize("slug,text", OCR_WINDOW_TRAPS)
+def test_ocr_window_traps_stay_silent(slug, text):
+    assert R.evaluate(slug, text, ocr=True).state is not State.CONTAINS
+
+
+OCR_GARBLED_EU14 = [
+    ("bloeddyr", "Blaamuslinger, vand, salt", State.CONTAINS),
+    ("jordnoed", "Ristede jordn0dder, salt", State.CONTAINS),
+    ("noedder", "Hasseln0dder, sukker", State.CONTAINS),
+]
+
+@pytest.mark.parametrize("slug,text,expected", OCR_GARBLED_EU14)
+def test_ocr_tolerance_eu14(slug, text, expected):
+    assert R.evaluate(slug, text, ocr=True).state is expected

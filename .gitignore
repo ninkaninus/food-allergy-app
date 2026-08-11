@@ -13,6 +13,7 @@ deploy/authelia/notification.txt
 # --- Runtime-data -------------------------------------------------------
 # Databasen indeholder jeres domme og brugere. Den hører hjemme i backup,
 # ikke i git.
+data-runtime/
 data/*.db
 data/*.db-wal
 data/*.db-shm

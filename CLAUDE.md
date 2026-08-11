@@ -72,7 +72,7 @@ gevinst.
 
 | | `ingredients.py` | `matcher.py` |
 |---|---|---|
-| Dækning | alle ingredienser | fem allergener |
+| Dækning | alle ingredienser | 17 allergener (EU-14 + jordbær, banan, tomat) |
 | Præcision | lav, substring | høj, maskeret |
 | Fejler mod | overekskludering | overadvarsel |
 | Bruges til | finde og filtrere | afgøre sikkerhed |

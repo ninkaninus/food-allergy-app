@@ -196,6 +196,374 @@ allergens:
       - ægløsning
       - eggplant
 
+  - slug: gluten
+    name_da: Gluten
+    name_en: Gluten
+    off_tag: "en:gluten"
+    eu14: true
+    note: >
+      "boghvede" er glutenfri og må aldrig ramme "hvede" — lookbehind klarer
+      eksakt match, men OCR-fuzzy kigger i vinduer inde i ord, så boghvede
+      SKAL stå i exclude. Samme historie: "hvide" (bønner) er én redigering
+      fra "hvede", "smeltet" én fra "spelt", og maltodextrin/maltose er
+      glutenfrie trods "malt"-præfikset.
+    contains:
+      - gluten
+      - hvede
+      - fuldkornshvede
+      - durumhvede
+      - ølandshvede
+      - durum
+      - semulje
+      - mannagryn
+      - grahamsmel
+      - couscous
+      - bulgur
+      - seitan
+      - rug
+      - fuldkornsrug
+      - byg
+      - perlebyg
+      - malt
+      - maltekstrakt
+      - havre
+      - spelt
+      - kamut
+      - øl
+      - wheat
+      - rye
+      - barley
+      - oat
+      - oats
+      - semolina
+    exclude:
+      - glutenfri
+      - gluten-fri
+      - gluten free
+      - gluten-free
+      - boghvede            # glutenfri pseudo-kornart — også vigtig for OCR-fuzzy
+      - maltodextrin        # glutenfrit trods navnet
+      - maltodekstrin
+      - maltose
+      - maltitol
+      - maltit
+      - maltol
+      - hvide               # "hvide bønner" er ét OCR-fejltrin fra "hvede"
+      - smelt               # "smeltet smør" er ét OCR-fejltrin fra "spelt"
+
+  - slug: krebsdyr
+    name_da: Krebsdyr
+    name_en: Crustaceans
+    off_tag: "en:crustaceans"
+    eu14: true
+    note: >
+      "varenummer" er én OCR-redigering fra "hummer", og "grillet" én fra
+      "krill" — derfor de mærkelige exclude-poster. "skaldyr" dækker både
+      krebsdyr og bløddyr og er derfor kun maybe.
+    contains:
+      - krebsdyr
+      - reje
+      - tigerreje
+      - kæmpereje
+      - dybvandsreje
+      - krabbe
+      - hummer
+      - jomfruhummer
+      - krebs
+      - flodkrebs
+      - scampi
+      - krill
+      - shrimp
+      - prawn
+      - crab
+      - lobster
+      - crayfish
+    maybe:
+      - skaldyr
+      - surimi              # fiskefars, men ofte med krebsdyrsmag/ekstrakt
+    exclude:
+      - nummer
+      - varenummer
+      - batchnummer
+      - lotnummer
+      - grill
+
+  - slug: fisk
+    name_da: Fisk
+    name_en: Fish
+    off_tag: "en:fish"
+    eu14: true
+    note: >
+      "tunge" kan være både søtunge (fisk) og oksetunge (okse) — derfor er
+      den maybe, og maskeringen af maybe før contains-passet forhindrer
+      samtidig, at "tun" bliver rød på "tunge". "norsk" er én OCR-redigering
+      fra "torsk". Sammensætninger med -fisk bagest står eksplicit.
+    contains:
+      - fisk
+      - tunfisk
+      - sværdfisk
+      - hellefisk
+      - klipfisk
+      - tørfisk
+      - torsk
+      - laks
+      - tun
+      - makrel
+      - sild
+      - brisling
+      - sardin
+      - ansjos
+      - rødspætte
+      - skrubbe
+      - kuller
+      - ørred
+      - pangasius
+      - tilapia
+      - søtunge
+      - rødtunge
+      - surimi
+      - kaviar
+      - rogn
+      - fish
+      - salmon
+      - tuna
+      - herring
+      - mackerel
+      - anchovy
+      - anchovies
+      - sardine
+    maybe:
+      - tunge
+      - worcestershiresauce   # indeholder klassisk ansjos
+      - worcestershire sauce
+      - omega-3               # ofte fiskeolie, men kan være alger
+    exclude:
+      - norsk
+
+  - slug: jordnoed
+    name_da: Jordnødder
+    name_en: Peanuts
+    off_tag: "en:peanuts"
+    eu14: true
+    note: >
+      Jordnød er en bælgfrugt, ikke en nød — den har sin egen post, og
+      "nødder"-posten udelukker den tilsvarende. Jordnøddeolie er IKKE
+      undtaget i EU's mærkningsregler og forbliver rød.
+    contains:
+      - jordnød
+      - peanut
+      - peanuts
+      - arachisolie
+      - arachis
+
+  - slug: soja
+    name_da: Soja
+    name_en: Soy
+    off_tag: "en:soybeans"
+    eu14: true
+    note: >
+      Præfikset dækker sojamælk, sojaolie, sojalecithin osv. Bemærk at
+      sojamælk står i mælkeproteinets exclude men er CONTAINS her — det er
+      hele pointen med per-allergen-regler. Ren lecithin uden angivet kilde
+      er maybe, som under æg.
+    contains:
+      - soja
+      - soya
+      - soy
+      - soybean
+      - tofu
+      - edamame
+      - miso
+      - tempeh
+      - tamari
+    maybe:
+      - lecithin
+      - lecitin
+      - e322
+      - vegetabilsk protein
+
+  - slug: noedder
+    name_da: Nødder
+    name_en: Tree nuts
+    off_tag: "en:nuts"
+    eu14: true
+    note: >
+      EU's liste er otte arter — hverken muskatnød, kokosnød eller jordnød
+      hører til, og alle tre skal i exclude, fordi OCR-fuzzy ellers finder
+      "nødde" i vinduer inde i ordene. "nødvendig" ("rystes om nødvendigt")
+      er én redigering fra "nødde" og ryger med af samme grund.
+      Mandelaroma er som jordbæraroma: gul, ikke rød.
+    contains:
+      - nødde
+      - nødder
+      - mandel
+      - mandler
+      - bittermandel
+      - marcipan
+      - marzipan
+      - nougat
+      - nugat
+      - hasselnød
+      - valnød
+      - cashew
+      - pekan
+      - pekannød
+      - paranød
+      - pistacie
+      - pistache
+      - macadamia
+      - almond
+      - hazelnut
+      - walnut
+      - pecan
+      - pistachio
+      - brazil nut
+      - nuts
+    maybe:
+      - mandelaroma         # ofte syntetisk, men verificér
+      - nøddearoma
+      - pralin
+    exclude:
+      - muskatnød           # krydderi, ikke nød
+      - kokosnød            # ikke på EU's nøddeliste
+      - jordnød             # egen post — bælgfrugt, ikke nød
+      - nødvendig
+
+  - slug: selleri
+    name_da: Selleri
+    name_en: Celery
+    off_tag: "en:celery"
+    eu14: true
+    note: >
+      Knold- og bladselleri har allergenet bagest og skal stå eksplicit.
+      Skjult selleri i krydderiblandinger SKAL deklareres efter EU-reglerne,
+      så "krydderier" alene udløser ingenting.
+    contains:
+      - selleri
+      - knoldselleri
+      - bladselleri
+      - celery
+
+  - slug: sennep
+    name_da: Sennep
+    name_en: Mustard
+    off_tag: "en:mustard"
+    eu14: true
+    contains:
+      - sennep
+      - dijonsennep
+      - mustard
+
+  - slug: sesam
+    name_da: Sesam
+    name_en: Sesame
+    off_tag: "en:sesame-seeds"
+    eu14: true
+    note: >
+      Tahin er ren sesam og altid rød. Hummus og halva laves NÆSTEN altid
+      med sesam, men ikke altid — gul, producenten tjekkes. "tahiti"
+      (vanilje) er én OCR-redigering fra "tahin", deraf exclude.
+    contains:
+      - sesam
+      - tahin
+      - tahini
+      - sesame
+    maybe:
+      - hummus
+      - humus
+      - halva
+    exclude:
+      - tahiti
+
+  - slug: sulfit
+    name_da: Svovldioxid og sulfitter
+    name_en: Sulphur dioxide and sulphites
+    off_tag: "en:sulphur-dioxide-and-sulphites"
+    eu14: true
+    note: >
+      Sammensætningerne (natriumsulfit osv.) har allergenet bagest og står
+      eksplicit, sammen med E220-E228. Sulfat er IKKE sulfit — ét bogstav
+      og én OCR-redigering i forskel, så de ufarlige sulfater står i
+      exclude, både alene og i deres almindelige sammensætninger.
+    contains:
+      - svovldioxid
+      - sulfit
+      - sulfitter
+      - natriumsulfit
+      - natriumhydrogensulfit
+      - natriumbisulfit
+      - natriumdisulfit
+      - natriummetabisulfit
+      - kaliumdisulfit
+      - kaliumhydrogensulfit
+      - calciumsulfit
+      - calciumhydrogensulfit
+      - e220
+      - e221
+      - e222
+      - e223
+      - e224
+      - e226
+      - e227
+      - e228
+      - sulphite
+      - sulfite
+      - sulphur dioxide
+      - sulfur dioxide
+    exclude:
+      - sulfat
+      - calciumsulfat       # E516, ufarligt
+      - magnesiumsulfat     # E518, ufarligt
+      - ammoniumsulfat      # E517, ufarligt
+      - jernsulfat          # kosttilskud, ufarligt for sulfit-allergikere
+
+  - slug: lupin
+    name_da: Lupin
+    name_en: Lupin
+    off_tag: "en:lupin"
+    eu14: true
+    note: >
+      Dukker op som lupinmel i glutenfrit bagværk — præcis dér, hvor man
+      tror man har købt sig fri af problemer.
+    contains:
+      - lupin
+      - lupine
+
+  - slug: bloeddyr
+    name_da: Bløddyr
+    name_en: Molluscs
+    off_tag: "en:molluscs"
+    eu14: true
+    note: >
+      "kanelsnegle" indeholder ordret "snegl", og OCR-fuzzy finder det i
+      vinduet — deraf exclude. "Østersøen" ("fanget i Østersøen") er ét
+      vindue fra "østers" af samme grund. Blå-/kammusling har allergenet
+      bagest og står eksplicit.
+    contains:
+      - bløddyr
+      - musling
+      - blåmusling
+      - kammusling
+      - hjertemusling
+      - venusmusling
+      - østers
+      - østerssauce
+      - blæksprutte
+      - calamari
+      - snegl
+      - mussel
+      - mussels
+      - oyster
+      - squid
+      - octopus
+      - scallop
+      - clam
+    maybe:
+      - skaldyr
+    exclude:
+      - kanelsnegl
+      - østersø
+
   - slug: jordbaer
     name_da: Jordbær
     name_en: Strawberry
@@ -262,6 +630,28 @@ allergens:
       - tropical fruit
     exclude:
       - bananfluer
+
+  - slug: tomat
+    name_da: Tomat
+    name_en: Tomato
+    off_tag: null
+    eu14: false
+    note: >
+      Som jordbær og banan — ikke EU-14, findes kun i fritekst. Ketchup og
+      passata ER tomat. "automat" og "aromatiseret" er OCR-vinduer fra
+      "tomat", og tomatillo er en anden plante — deraf de tre exclude.
+    contains:
+      - tomat
+      - ketchup
+      - passata
+      - tomato
+    maybe:
+      - salsa
+    exclude:
+      - tomatillo
+      - automat
+      - aromatiseret
+      - aromatisk
 
 # Generelle sporadvarsler — matches på tværs af alle allergener.
 # Giver aldrig CONTAINS, kun TRACE_RISK.
