@@ -158,11 +158,16 @@ footer a{color:var(--muted)}
       </div>
       <div class="acts">
         <button class="btn ghost" id="ocrBtn">Fotografér deklaration</button>
+        <button class="btn ghost" id="ocrPickBtn">Brug gemt billede</button>
         <button class="btn" id="confirmBtn">Bekræft mod emballagen</button>
       </div>
     </section>
 
+    <!-- To inputs, samme arbejdsgang: capture tvinger telefonens kamera
+         frem, men skjuler samtidig galleriet (særligt på iPhone) — derfor
+         har gemte billeder deres egen knap og et input uden capture. -->
     <input type="file" id="ocrFile" accept="image/*" capture="environment" hidden>
+    <input type="file" id="ocrPick" accept="image/*" hidden>
 
     <section class="sec" id="confirmPanel" hidden>
       <h3>Bekræft mod emballagen</h3>
@@ -423,12 +428,14 @@ $('#camBtn').onclick = async () => {
 };
 
 /* ---------- OCR ---------- */
-$('#ocrBtn').onclick = () => {
-  if(!USER){ $('#scanHint').textContent = 'Log ind under Indstillinger for at bruge OCR.'; return; }
-  $('#ocrFile').click();
+const ocrGuard = () => {
+  if(!USER){ $('#scanHint').textContent = 'Log ind under Indstillinger for at bruge OCR.'; return false; }
+  return true;
 };
+$('#ocrBtn').onclick     = () => { if(ocrGuard()) $('#ocrFile').click(); };
+$('#ocrPickBtn').onclick = () => { if(ocrGuard()) $('#ocrPick').click(); };
 
-$('#ocrFile').onchange = async e => {
+$('#ocrFile').onchange = $('#ocrPick').onchange = async e => {
   const f = e.target.files?.[0];
   if(!f) return;
   openConfirm();
