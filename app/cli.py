@@ -3,6 +3,7 @@ Kommandolinje. Kør inde i containeren:
 
     docker compose exec allergiscan python -m app.cli adduser dig@example.dk "William"
     docker compose exec allergiscan python -m app.cli reindex
+    docker compose run --rm allergiscan python -m app.cli migrate /data/allergiscan.db
 """
 
 from __future__ import annotations
@@ -11,12 +12,12 @@ import asyncio
 import getpass
 import sys
 
-from sqlalchemy import select
+from sqlalchemy import create_engine, func, select, text
 
 from . import ingredients as ix
 from .auth import hash_password, validate_new_password
-from .db import SessionLocal, default_household, init_db
-from .models import Product, User
+from .db import DATABASE_URL, SessionLocal, default_household, init_db
+from .models import Base, Product, User
 
 
 def adduser(email: str, name: str, role: str = "admin") -> None:
@@ -58,11 +59,66 @@ def reindex() -> None:
     print(f"Genindekserede {n} varer.")
 
 
+def migrate(kilde: str, maal: str | None = None) -> None:
+    """
+    Kopierer ALLE tabeller fra én database til en anden — typisk fra
+    SQLite-filen til Postgres-containeren. Målet er den konfigurerede
+    DATABASE_URL, medmindre andet angives, og det SKAL være tomt: har
+    appen allerede startet én gang mod målet, har init_db seedet det,
+    og så stopper vi hellere end at duplikere. Se deploy/UNRAID.md.
+    """
+    if "://" not in kilde:
+        kilde = f"sqlite:///{kilde}"
+    maal = maal or DATABASE_URL
+    if kilde == maal:
+        sys.exit("Kilde og mål er den samme database — ingenting at gøre.")
+
+    k_eng = create_engine(kilde)
+    m_eng = create_engine(maal)
+    Base.metadata.create_all(m_eng)
+
+    with m_eng.connect() as m:
+        for t in Base.metadata.sorted_tables:
+            if m.execute(select(func.count()).select_from(t)).scalar():
+                sys.exit(
+                    f"Målet er ikke tomt ({t.name} har rækker). Migrér kun til en "
+                    "frisk database — se fremgangsmåden i deploy/UNRAID.md."
+                )
+
+    total = 0
+    with k_eng.connect() as k, m_eng.begin() as m:
+        for t in Base.metadata.sorted_tables:
+            rows = [dict(r._mapping) for r in k.execute(t.select())]
+            if rows:
+                m.execute(t.insert(), rows)
+            print(f"  {t.name}: {len(rows)} rækker")
+            total += len(rows)
+
+    # Postgres tildeler id'er fra sekvenser, og de står stadig på nul
+    # efter indsættelse med eksplicitte id'er — stil dem frem.
+    if m_eng.dialect.name == "postgresql":
+        with m_eng.begin() as m:
+            for t in Base.metadata.sorted_tables:
+                pk = list(t.primary_key.columns)
+                if len(pk) == 1 and pk[0].name == "id":
+                    m.execute(text(
+                        f"SELECT setval(pg_get_serial_sequence('{t.name}', 'id'), "
+                        f"COALESCE((SELECT MAX(id) FROM {t.name}), 1))"
+                    ))
+
+    print(f"Færdig: {total} rækker flyttet til {m_eng.url.render_as_string(hide_password=True)}")
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "adduser":
         adduser(*sys.argv[2:])
     elif cmd == "reindex":
         reindex()
+    elif cmd == "migrate":
+        migrate(*sys.argv[2:])
     else:
-        sys.exit("Brug: python -m app.cli [adduser EMAIL NAVN [ROLLE] | reindex]")
+        sys.exit(
+            "Brug: python -m app.cli "
+            "[adduser EMAIL NAVN [ROLLE] | reindex | migrate KILDE [MÅL]]"
+        )

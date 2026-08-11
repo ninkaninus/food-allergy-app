@@ -51,6 +51,7 @@ textarea{min-height:150px;line-height:1.6;resize:vertical}
 .slab[data-r="unsafe"]{background:var(--unsafe)}
 .slab[data-r="caution"]{background:var(--caution)}
 .slab[data-r="safe"]{background:var(--safe)}
+.slab[data-r="error"]{background:var(--caution)}
 .eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;opacity:.82;
   font-weight:700;margin:0 0 2px}
 .shout{font-family:Archivo,sans-serif;font-variation-settings:"wdth" 122,"wght" 850;
@@ -289,7 +290,8 @@ const COPY = {
   caution:   ['Usikker','Skal tjekkes','Sporadvarsler eller ingredienser, der kan skjule et allergen.'],
   unverified:['Ikke bekræftet','Ved det ikke','Motoren fandt ingenting — men det er ikke det samme som frit.'],
   safe:      ['Bekræftet','Sikker','Alle valgte allergener er manuelt afkrydset mod emballagen.'],
-  unknown:   ['Ukendt vare','Ingen data','Stregkoden findes ikke i Open Food Facts. Fotografér deklarationen.']
+  unknown:   ['Ukendt vare','Ingen data','Stregkoden findes ikke i Open Food Facts. Fotografér deklarationen.'],
+  error:     ['Opslag fejlede','Prøv igen','Serveren kunne ikke nå Open Food Facts. Varen er ikke slået op.']
 };
 const BASIS = {manual:'bekræftet af et menneske', off_allergen_tag:'allergen-tag fra Open Food Facts',
   off_trace_tag:'sportag fra Open Food Facts', text_match:'fundet i ingredienslisten',
@@ -310,8 +312,17 @@ async function lookup(code){
   if(ean.length < 8){ $('#ean').focus(); return; }
   $('#ean').value = ean;
   const q = new URLSearchParams({allergens: prefs.allergens.join(',')});
-  const r = await fetch(`/api/scan/${ean}?${q}`);
+  let r;
+  try {
+    r = await fetch(`/api/scan/${ean}?${q}`);
+  } catch {
+    // En fejl må ALDRIG ligne "der skete ikke noget" — så scanner man
+    // bare videre og tror, varen var ukendt.
+    $('#scanHint').textContent = 'Ingen forbindelse til serveren. Intet blev slået op.';
+    return;
+  }
   if(!r.ok){ $('#scanHint').textContent = 'Opslag mislykkedes ('+r.status+').'; return; }
+  $('#scanHint').textContent = '';
   LAST = await r.json();
   render(LAST);
 }
@@ -336,12 +347,12 @@ function highlight(text, rows){
 function render(d){
   $('#verdict').hidden = false;
   $('#confirmPanel').hidden = true;
-  const key = d.found ? d.result : 'unknown';
+  const key = d.found ? d.result : (d.result === 'error' ? 'error' : 'unknown');
   const [eb, sh, ex] = COPY[key] || COPY.unverified;
   $('#slab').dataset.r = key;
   $('#eyebrow').textContent = eb;
   $('#shout').textContent = sh;
-  $('#explain').textContent = ex;
+  $('#explain').textContent = d.message || ex;
 
   const p = d.product || {};
   $('#prod').innerHTML = (p.image_url ? `<img src="${esc(p.image_url)}" alt="" loading="lazy">` : '')

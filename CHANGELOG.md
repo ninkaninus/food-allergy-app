@@ -3,6 +3,20 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.6.0 — 11. august 2026
+
+- **Fejl gemmer sig ikke længere som »ingen data«.** Kan serveren ikke
+  nå Open Food Facts, siger skærmen nu tydeligt »Opslag fejlede — varen
+  er IKKE slået op« i stedet for at ligne en ukendt vare. Mister
+  telefonen forbindelsen til serveren, står der også besked i stedet
+  for ingenting.
+- Ny diagnoseside til fejlsøgning: `/api/diagnostik` viser, hvilken
+  database appen kigger i, hvor mange varer/domme/brugere den har, og
+  om Open Food Facts kan nås fra serveren.
+- Databasen kan nu flyttes til en rigtig databaseserver (Postgres) med
+  én kommando — alle scannede varer, domme og brugere følger med.
+  Fremgangsmåde i deploy/UNRAID.md.
+
 ## 0.5.0 — 11. august 2026
 
 - **OCR finder nu selv ingredienslisten på et foto af hele posen** —

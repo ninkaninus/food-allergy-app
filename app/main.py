@@ -5,6 +5,8 @@ import os
 from dataclasses import asdict
 from pathlib import Path
 
+import httpx
+
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -40,7 +42,7 @@ from .models import (
     now,
 )
 
-app = FastAPI(title="AllergiScan", version="0.1.0")
+app = FastAPI(title="AllergiScan", version=VERSION)
 STATIC = Path(__file__).parent / "static"
 
 
@@ -88,7 +90,10 @@ async def _ensure_product(db: Session, ean: str, refresh: bool = False) -> tuple
 
     res = await off.fetch_product(ean)
     if not res.get("found"):
-        return p, "off_miss"
+        # Skeln mellem "OFF kender den ikke" og "OFF kunne ikke nås".
+        # Fejlen må ikke ligne et ærligt ikke-fundet — så tror brugeren,
+        # at varen er tjekket, når intet opslag overhovedet er sket.
+        return p, ("off_error" if res.get("error") else "off_miss")
 
     if p is None:
         p = Product(ean=ean)
@@ -203,6 +208,18 @@ async def scan(
         slugs = _active_slugs(db, prof.id) if prof else list(RULES.allergens)
 
     product, source = await _ensure_product(db, ean, refresh=refresh)
+
+    if product is None and source == "off_error":
+        # Ingen kø og ingen "findes ikke" — opslaget er ikke sket.
+        return {
+            "ean": ean,
+            "found": False,
+            "result": "error",
+            "message": "Open Food Facts kunne ikke nås fra serveren. Varen er "
+                       "IKKE slået op — tjek serverens internetforbindelse og "
+                       "prøv igen.",
+            "allergens": [],
+        }
 
     if product is None:
         _queue(db, hh.id, ean, "not_found")
@@ -636,6 +653,36 @@ def attribution(db: Session = Depends(get_session)):
 @app.get("/api/version")
 def version():
     return {"version": VERSION}
+
+
+@app.get("/api/diagnostik")
+async def diagnostik(db: Session = Depends(get_session)):
+    """
+    Til fejlsøgning når "der sker ikke noget": hvilken database kigger
+    appen i, er der data i den, og kan Open Food Facts nås fra
+    containeren? Se fejlsøgningsafsnittet i deploy/UNRAID.md.
+    """
+    from .db import DATA_DIR, DATABASE_URL
+
+    motor = "postgres" if DATABASE_URL.startswith("postgresql") else "sqlite"
+    info = {
+        "version": VERSION,
+        "database": {
+            "motor": motor,
+            "sti": str(DATA_DIR / "allergiscan.db") if motor == "sqlite" else "postgres-containeren",
+            "skrivbar": os.access(DATA_DIR, os.W_OK) if motor == "sqlite" else True,
+            "produkter": db.scalar(select(func.count()).select_from(Product)),
+            "domme": db.scalar(select(func.count()).select_from(Verdict)),
+            "brugere": db.scalar(select(func.count()).select_from(User)),
+        },
+    }
+    try:
+        async with httpx.AsyncClient(timeout=4.0, headers={"User-Agent": off.UA}) as c:
+            r = await c.head(off.BASE)
+        info["off"] = {"kan_naas": True, "status": r.status_code}
+    except Exception as e:
+        info["off"] = {"kan_naas": False, "fejl": str(e)}
+    return info
 
 
 @app.get("/api/changelog")

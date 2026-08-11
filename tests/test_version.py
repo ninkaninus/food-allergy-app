@@ -38,3 +38,14 @@ def test_changelog_har_post_for_denne_version():
         r = c.get("/api/changelog")
     assert r.status_code == 200
     assert f"## {VERSION}" in r.text
+
+
+def test_diagnostik_viser_database_og_taellinger():
+    with TestClient(app) as c:
+        r = c.get("/api/diagnostik")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["database"]["motor"] == "sqlite"
+    assert d["database"]["skrivbar"] is True
+    assert isinstance(d["database"]["produkter"], int)
+    assert "kan_naas" in d["off"]

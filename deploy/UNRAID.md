@@ -426,6 +426,88 @@ docker inspect allergiscan --format '{{.Config.Image}}'   # ghcr.io/…:sha-<ny 
 Linjer med `FEJL:` i deploy.log kræver hænder — dem skriver agenten kun,
 når den hverken kunne deploye eller rulle tilbage.
 
+## Når scanneren »ikke gør noget« — fejlsøgning af data og net
+
+Appen har allerede en database: SQLite i én fil, som ligger på din disk
+via `DATA_PATH`-bind-mountet (`/mnt/user/appdata/allergiscan/data/allergiscan.db`).
+»Cachen er tom« betyder næsten altid, at containeren kigger i en NY, tom
+fil — ikke at data er væk. Og »der sker ikke noget« ved scanning betyder
+som regel, at containeren ikke kan nå Open Food Facts.
+
+Start her — ét opslag viser begge dele:
+
+```bash
+curl -s http://127.0.0.1:8420/api/diagnostik
+```
+
+- `database.sti` + `produkter/domme/brugere`: er tallene 0, kigger appen
+  i en frisk fil.
+- `off.kan_naas`: `false` betyder, at containeren ikke har udadgående
+  net — det er dét, der får hvert scan til at fejle.
+
+**Tom database → find den gamle fil og læg den tilbage:**
+
+```bash
+docker inspect allergiscan -f '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
+find /mnt/user/appdata -name 'allergiscan.db' -ls    # hvor bor den gamle?
+docker compose stop allergiscan
+cp /sti/til/den/gamle/allergiscan.db /mnt/user/appdata/allergiscan/data/
+docker compose up -d
+```
+
+Typisk synder: en tidligere manuel opstart kørte compose fra en anden
+mappe (eller uden `DATA_PATH` i `.env`), så den gamle fil ligger i en
+`data-runtime/` et andet sted. Dine domme og brugere ligger i den fil —
+flyt den, før du rydder op.
+
+**`off.kan_naas: false` → containeren mangler udadgående net.** Sker
+gerne efter netværksrokader (fx ekstern-tunnel-varianten i trin 4).
+Tjek: `docker exec allergiscan python -c "import httpx; print(httpx.head('https://world.openfoodfacts.org', timeout=5))"`.
+Fejler den, så genstart stakken (`docker compose down && docker compose up -d`)
+og se på custom-netværk, containeren måtte være tilsluttet.
+
+Fra version 0.6.0 skjuler appen ikke problemet: kan OFF ikke nås, siger
+skærmen »Opslag fejlede — varen er IKKE slået op« i stedet for at ligne
+en ukendt vare.
+
+## Postgres i stedet for SQLite (valgfrit)
+
+SQLite på disken er rigeligt til to brugere, men vil du have databasen
+som sin egen container, er alt forberedt: driveren er i imaget,
+compose-filen har en `postgres`-service på samme Docker-netværk, og
+dens data bind-mountes til disken via `PGDATA_PATH`
+(`/mnt/user/appdata/allergiscan/pgdata`).
+
+1. I `.env`:
+
+   ```
+   COMPOSE_PROFILES=tunnel,postgres      # behold hvad du ellers har
+   POSTGRES_PASSWORD=<langt tilfældigt kodeord>
+   DATABASE_URL=postgresql+psycopg://allergiscan:<samme kodeord>@postgres:5432/allergiscan
+   ```
+
+2. Start KUN databasen og flyt dine data, FØR appen starter mod den —
+   ellers seeder appens opstart en tom husstand, og migreringen nægter
+   (den insisterer på et helt tomt mål frem for at duplikere):
+
+   ```bash
+   docker compose up -d postgres
+   docker compose run --rm allergiscan python -m app.cli migrate /data/allergiscan.db
+   docker compose up -d
+   ```
+
+3. **Tjek:** `curl -s http://127.0.0.1:8420/api/diagnostik` — `motor`
+   skal være `postgres`, og tællingerne skal matche dem, du havde.
+   SQLite-filen bliver liggende urørt som ekstra sikkerhedsnet.
+
+Startede appen mod Postgres, før du nåede at migrere? Nulstil målet og
+prøv igen:
+
+```bash
+docker compose exec postgres psql -U allergiscan -d allergiscan \
+  -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+```
+
 ## Bevidste fravalg
 
 - **Ingen webhook/push-deploy.** Et webhook-endpoint er en ekstra dør i en
