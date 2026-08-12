@@ -114,7 +114,6 @@ def _gammel_liste_hint(
                 "id": bundet.id,
                 "navn": bundet.navn,
                 "producent": bundet.producent,
-                "butik": bundet.butik,
                 "kategori": bundet.kategori,
                 "valideret_mod": bundet.valideret_mod,
                 "ean": bundet.ean,
@@ -146,7 +145,6 @@ def _gammel_liste_hint(
             "id": ip.id,
             "navn": ip.navn,
             "producent": ip.producent,
-            "butik": ip.butik,
             "kategori": ip.kategori,
             "valideret_mod": ip.valideret_mod,
             "ean": ip.ean,
@@ -161,7 +159,7 @@ def _match_liste(navn: str | None, maerke: str | None, ordindeks: dict):
 
     To forskellige krav, med vilje:
 
-    * **Kategori og butik** arves ved to fælles ord. Det er filterlag —
+    * **Kategori** arves ved to fælles ord. Det er filterlag —
       rammer den ved siden af, står varen i en lidt forkert gruppe, og
       det er til at leve med.
     * **`samme_vare`** — påstanden om at det ér den samme vare, så de to
@@ -715,7 +713,7 @@ async def kobl_stregkode(
 
     Det er dét, der giver arkets 583 rækker værdi: uden EAN kan de aldrig
     bære en dom, for domme hænger på (EAN, allergen). Efter koblingen er
-    varen ÉN linje i listen, med arkets hylde og butik og varens egen dom.
+    varen ÉN linje i listen, med arkets hylde og varens egen dom.
 
     Koblingen er IKKE en dom og gør ikke noget grønt. Arket siger kun, at
     I engang har haft varen på listen; farven kommer stadig fra motoren
@@ -766,7 +764,6 @@ def soeg(
     status: str = "alle",
     fri_for: str | None = None,
     kategori: str | None = None,
-    butik: str | None = None,
     allergens: str | None = None,
     limit: int = 60,
     db: Session = Depends(get_session),
@@ -775,7 +772,7 @@ def soeg(
     Butiks-agtig søgning i ÉN liste. Varerne fra det gamle regneark og
     de varer, I har scannet, er samme liste: har I scannet noget, der
     står på arket, bliver det én linje — den scannede, med dommen — og
-    arket giver den sin kategori og butik.
+    arket giver den sin kategori.
 
     Underliggende ligger de i hver sin tabel, og det bliver de ved med:
     `product` er ODbL-afledt fra Open Food Facts, arket er jeres eget
@@ -787,7 +784,7 @@ def soeg(
     opskrift. Søgningen kan aldrig GØRE noget grønt — kun vise frem.
 
     Filtre (alle valgfrie, kombineres):
-      q         fritekst i navn, mærke, kategori og butik (æ/ø/å-tolerant)
+      q         fritekst i navn, mærke og kategori (æ/ø/å-tolerant)
       status    alle | safe | unsafe | uafklaret | uscannet
       fri_for   kommaseparerede allergen-slugs: skjuler varer, hvor
                 allergenet ER fundet. Bemærk: det er IKKE det samme som
@@ -795,7 +792,6 @@ def soeg(
                 beholder sin egen farve.
       kategori  jeres egne hyldenavne fra regnearket — også for de
                 scannede varer, der matcher en række på arket
-      butik     hvor I plejer at købe den
 
     Svaret rummer facetter med antal, så knapperne kan vise tal som i en
     webshop — hver facet talt med de ØVRIGE filtre aktive.
@@ -855,7 +851,6 @@ def soeg(
             # Scannede varer har ingen hyldenavne af sig selv — de arver
             # jeres egne fra arket, så de står i den rigtige gruppe.
             "kategori": ip.kategori if ip else None,
-            "butik": ip.butik if ip else None,
             "paa_listen": samme_vare,
             "scannet": True,
             "status": aggregate(verdicts),
@@ -874,7 +869,6 @@ def soeg(
             "maerke": ip.producent,
             "billede": None,
             "kategori": ip.kategori,
-            "butik": ip.butik,
             "paa_listen": True,
             "scannet": False,
             "status": "uscannet",
@@ -892,7 +886,7 @@ def soeg(
     def match_q(k: dict) -> bool:
         if not ql:
             return True
-        blob = _soegenoegle(" ".join(filter(None, [k["navn"], k["maerke"], k["kategori"], k["butik"]])))
+        blob = _soegenoegle(" ".join(filter(None, [k["navn"], k["maerke"], k["kategori"]])))
         return ql in blob
 
     def match_status(k: dict) -> bool:
@@ -914,13 +908,10 @@ def soeg(
         # navnet. Filterlags-logik: overinklusion er acceptabel her.
         return _soegenoegle(kategori) in _soegenoegle(" ".join(filter(None, [k["navn"], k["maerke"]])))
 
-    def match_butik(k: dict) -> bool:
-        return not butik or (k["butik"] or "").lower() == butik.lower()
-
     def filtrer(*undtag: str) -> list[dict]:
         proever = {
             "q": match_q, "status": match_status, "fri_for": match_fri,
-            "kategori": match_kategori, "butik": match_butik,
+            "kategori": match_kategori,
         }
         aktive = [f for navn, f in proever.items() if navn not in undtag]
         return [k for k in kandidater if all(f(k) for f in aktive)]
@@ -948,7 +939,6 @@ def soeg(
     facetter = {
         "status": status_antal,
         "kategori": facet("kategori", "kategori"),
-        "butik": facet("butik", "butik"),
     }
 
     traef = filtrer()

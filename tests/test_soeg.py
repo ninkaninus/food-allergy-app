@@ -53,11 +53,11 @@ def client():
         db.add(Verdict(household_id=hh.id, product_ean="5799990000004",
                        allergen_id=maelk.id, state="free", basis="manual",
                        ingredients_hash="00000000000000000000000000000000"))
-        # Den gamle godkendt-liste: egne hyldenavne og butikker, ingen EAN
+        # Den gamle godkendt-liste: egne hyldenavne, ingen EAN
         db.add(ImportedProduct(household_id=hh.id, kategori="Brød", navn="Listebrød Grov",
-                               producent="Bagerens", butik="Netto", valideret_mod="mælk og æg"))
+                               producent="Bagerens", valideret_mod="mælk og æg"))
         db.add(ImportedProduct(household_id=hh.id, kategori="Pålæg", navn="Listepålæg Skinke",
-                               producent="Slagteren", butik="Rema"))
+                               producent="Slagteren"))
         db.commit()
     return TestClient(app)
 
@@ -126,7 +126,7 @@ def test_tom_soegning_og_ugyldig_status(client):
     assert r.status_code == 400
 
 
-# --- facetter og butiks-filtre --------------------------------------------
+# --- facetter og kategori-filtre --------------------------------------------
 
 def test_facetter_taeller_som_i_en_webshop(client):
     r = client.get("/api/soeg", params={"allergens": "maelkeprotein", "q": "brød"})
@@ -153,11 +153,6 @@ def test_listen_er_med_i_soegningen_men_aldrig_sikker(client):
 def test_kategori_facet_filtrerer(client):
     navne = {p["navn"] for p in _hent(client, kategori="Pålæg")}
     assert navne == {"Listepålæg Skinke"}
-
-
-def test_butik_facet_filtrerer(client):
-    navne = {p["navn"] for p in _hent(client, butik="Netto")}
-    assert navne == {"Listebrød Grov"}
 
 
 def test_fri_for_skjuler_varer_hvor_allergenet_er_fundet(client):
@@ -200,7 +195,6 @@ def test_scannet_vare_og_arkraekke_bliver_EEN_linje(client):
     assert v["ean"] == "5799990000005"
     # arven fra arket: den scannede vare havner i den rigtige gruppe
     assert v["kategori"] == "Brød"
-    assert v["butik"] == "Netto"
     # og dommen er stadig motorens/menneskets — ikke arkets
     assert v["status"] != "safe"
 
@@ -272,7 +266,7 @@ def test_koblet_raekke_bliver_een_linje_med_dom(client, auth):
         db.add(Product(ean=ean, name="Helt Andet Navn", brand="Ukendt",
                        ingredients_text=t, ingredients_hash=ingredients_hash(t)))
         ip = ImportedProduct(household_id=hh.id, kategori="Pålæg",
-                             navn="Arkets Skinke", producent="Slagteren", butik="Netto")
+                             navn="Arkets Skinke", producent="Slagteren")
         db.add(ip)
         db.commit()
         ip_id = ip.id
@@ -284,7 +278,7 @@ def test_koblet_raekke_bliver_een_linje_med_dom(client, auth):
     assert len(traef) == 1
     v = traef[0]
     assert v["ean"] == ean and v["paa_listen"] is True
-    assert v["kategori"] == "Pålæg" and v["butik"] == "Netto"
+    assert v["kategori"] == "Pålæg"
     # koblingen er IKKE en dom — mælkeprotein står stadig i teksten
     assert v["status"] == "unsafe"
 

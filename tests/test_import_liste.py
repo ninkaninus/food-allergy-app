@@ -75,6 +75,17 @@ def test_import_og_genimport(tmp_path):
         assert not any(r.kategori == "MasterData" for r in rows)
 
 
+def test_butik_kolonnen_ignoreres(tmp_path):
+    """Arket har stadig en Butik-kolonne, men butik er ikke data, appen får
+    om fremtidige varer: en scannet vare har ingen butik. Et filter, der
+    kun kender arkets rækker, ville skjule alt det, I har scannet."""
+    init_db()
+    import_liste(_ark(tmp_path))
+    with SessionLocal() as db:
+        rows = list(db.scalars(select(ImportedProduct)))
+    assert rows and not any(hasattr(r, "butik") for r in rows)
+
+
 def test_import_skaber_ingen_domme(tmp_path):
     """Invariantens naboklausul: listen har ingen EAN og må aldrig blive
     til domme. Grøn kræver stadig et menneske."""

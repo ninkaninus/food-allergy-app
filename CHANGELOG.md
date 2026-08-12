@@ -3,6 +3,15 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.18.0 — 12. august 2026
+
+- **Butiksfilteret er væk.** Butik stod kun på arkets varer — en vare,
+  I scanner, har ingen butik. Filteret ville derfor skjule flere og
+  flere af jeres rigtige varer, jo mere I scanner. Kategorierne
+  (Pålæg, Bagning, Brød …) er der uændret; de gælder begge slags.
+- Regnearket må gerne beholde sin Butik-kolonne — appen ser bare bort
+  fra den ved import.
+
 ## 0.17.0 — 11. august 2026
 
 - **Nu får I kun ingredienslisten — ikke hele etiketten.** Den nye

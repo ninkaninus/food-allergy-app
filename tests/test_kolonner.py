@@ -45,7 +45,7 @@ def test_manglende_kolonne_tilfoejes_uden_at_roere_data(tmp_path, monkeypatch):
 
     kolonner = {c["name"] for c in inspect(eng).get_columns("imported_product")}
     assert "valideret_mod" in kolonner
-    assert "butik" in kolonner
+    assert "kategori" in kolonner
     with eng.connect() as con:
         assert con.execute(text("SELECT navn FROM imported_product")).scalar() == "Listebrød"
 

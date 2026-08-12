@@ -257,7 +257,6 @@ class ImportedProduct(Base):
     kategori: Mapped[str | None] = mapped_column(String(80), nullable=True)
     navn: Mapped[str] = mapped_column(String(400))
     producent: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    butik: Mapped[str | None] = mapped_column(String(300), nullable=True)
     link: Mapped[str | None] = mapped_column(Text, nullable=True)
     erstatning_for: Mapped[str | None] = mapped_column(String(300), nullable=True)
     # Hele listen var valideret, FØR den kom ind i regnearket — arkets

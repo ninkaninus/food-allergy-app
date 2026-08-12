@@ -152,7 +152,6 @@ def import_liste(kilde: str | None = None, valideret_mod: str | None = None) -> 
                 kategori=ws.title.strip(),
                 navn=navn,
                 producent=felt(row, "producent"),
-                butik=felt(row, "butik"),
                 link=felt(row, "link"),
                 erstatning_for=felt(row, "bruges  fx som erstatning for")
                                or felt(row, "bruges fx som erstatning for"),

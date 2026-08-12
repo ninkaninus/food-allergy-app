@@ -165,7 +165,7 @@ separate tabeller, så share-alike ikke smitter af på verifikationsarbejdet.
 Bland dem ikke sammen. Se `NOTICE.md`.
 
 **`imported_product` er familiens gamle regneark** — deres egne hyldenavne,
-butikker og 583 varer uden stregkoder. Den er en tredje tabel af samme grund:
+og 583 varer uden stregkoder. Den er en tredje tabel af samme grund:
 den er hverken OFF's data eller en dom. I appen er den ÉN liste sammen med de
 scannede varer (`/api/soeg` slår dem sammen i visningen, ikke i data).
 
@@ -187,7 +187,12 @@ filer. `FOTO_MAX_DEKLARATION`/`FOTO_MAX_FRONT` kan skrue på det.
 den aldrig bære en dom. Den sættes kun af et menneske
 (`POST /api/liste/{id}/stregkode`, kræver login) og er **ikke** en dom — en
 koblet række bliver ikke grøn af det. Er koblingen sat, slår den alle
-navnegæt; er den ikke, arves kun kategori og butik, og kun ved to fælles ord.
+navnegæt; er den ikke, arves kun kategori, og kun ved to fælles ord.
+
+Arkets butikskolonne er FJERNET (0.18.0). Butik er ikke data, appen får om
+fremtidige varer — en scannet vare har ingen — så et butiksfilter ville
+skjule mere og mere, jo flere varer familien scanner. Samme prøve gælder
+alt andet, arket måtte kunne: kan en scannet vare også have det?
 
 ## Kør og test
 

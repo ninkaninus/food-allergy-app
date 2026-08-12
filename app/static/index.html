@@ -257,10 +257,6 @@ footer a{color:var(--muted)}
         <div class="facet-h">Kategori</div>
         <ul class="chips" id="sKat"></ul>
       </div>
-      <div class="facet" id="sButikBox" hidden>
-        <div class="facet-h">Butik</div>
-        <ul class="chips" id="sButik"></ul>
-      </div>
 
       <p class="hint" id="sHint"></p>
     </div>
@@ -772,7 +768,7 @@ $('#saveConfirm').onclick = async () => {
 };
 
 /* ---------- søgning (butiks-agtig) ---------- */
-const soegState = {q:'', status:'alle', fri:new Set(), kategori:null, butik:null};
+const soegState = {q:'', status:'alle', fri:new Set(), kategori:null};
 let soegTimer;
 // Svarene kan komme i en anden rækkefølge end kaldene — en bred søgning er
 // tungere end en smal. Uden det her nummer overskriver det gamle, langsomme
@@ -796,7 +792,6 @@ async function soeg(){
   });
   if(soegState.fri.size) p.set('fri_for', [...soegState.fri].join(','));
   if(soegState.kategori) p.set('kategori', soegState.kategori);
-  if(soegState.butik) p.set('butik', soegState.butik);
 
   const mit = ++soegNr;
   let d;
@@ -825,7 +820,6 @@ async function soeg(){
   });
 
   facetChips('#sKat', '#sKatBox', d.facetter.kategori, 'kategori');
-  facetChips('#sButik', '#sButikBox', d.facetter.butik, 'butik');
 
   $('#sHint').textContent = soegState.fri.size
     ? '»Fri for« skjuler varer, hvor allergenet er FUNDET. Det er ikke bevis for at resten er fri — farven på hver vare gælder.'
@@ -848,7 +842,6 @@ async function soeg(){
       <span><span class="dot ${dot(v.status)}" style="display:inline-block;vertical-align:-2px;margin-right:8px"></span><b>${esc(v.navn)}</b>
         <span class="sub"><br>${esc(v.maerke || '—')} · ${esc(forklaring(v))}${v.stale ? ' · <b>opskrift ændret</b>' : ''}</span>
         <span class="badges">${[
-          v.butik,
           v.scannet && v.paa_listen ? 'også på arket' : null,
         ].filter(Boolean).map(t => `<span class="badge">${esc(t)}</span>`).join('')}</span></span>
       ${v.ean ? `<button class="link" data-ean="${esc(v.ean)}">åbn</button>`
