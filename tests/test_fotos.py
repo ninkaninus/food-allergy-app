@@ -45,7 +45,10 @@ def _jpeg(bredde=2400, hoejde=1800, farve=(180, 40, 60)):
 def client():
     init_db()
     with SessionLocal() as db:
-        if not db.query(User).count():
+        # Filtrér på MAILEN, ikke på antal: modulerne deler én database,
+        # og et blankt count() betyder, at modulets egen bruger aldrig
+        # bliver oprettet, hvis et andet modul kørte først.
+        if not db.query(User).filter(User.email == "w@example.dk").count():
             db.add(User(household_id=default_household(db).id, email="w@example.dk",
                         name="William", password_hash=hash_password(PW),
                         role="admin", source="local"))

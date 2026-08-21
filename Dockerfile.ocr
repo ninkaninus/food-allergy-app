@@ -23,4 +23,8 @@ RUN python -c "from rapidocr import RapidOCR; RapidOCR()"
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s \
   CMD python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')"
-CMD ["uvicorn","ocr_service.main:app","--host","0.0.0.0","--port","8000"]
+# Samme grund som i Dockerfile: healthchecket rammer /healthz hvert 30.
+# sekund, og adgangsloggen ville skrive ~2.900 linjer i døgnet uden
+# rotation — plus et tidsstemplet spor over hver deklaration, der blev
+# fotograferet. Fejl-logningen er urørt.
+CMD ["uvicorn","ocr_service.main:app","--host","0.0.0.0","--port","8000","--no-access-log"]

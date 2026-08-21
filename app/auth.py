@@ -26,10 +26,15 @@ import datetime as dt
 import hashlib
 import os
 import secrets
+import time
 
 import httpx
 from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
+# To familier, ikke én: VerificationError dækker "forkert adgangskode",
+# mens InvalidHashError (som arver ValueError, ikke Argon2Error) dækker
+# "det her er slet ikke en argon2-hash". Begge skal give 401 — en
+# beskadiget hash i databasen må ikke blive til 500.
+from argon2.exceptions import InvalidHashError, VerificationError
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -58,7 +63,7 @@ def verify_password(stored: str, pw: str) -> bool:
     try:
         ph.verify(stored, pw)
         return True
-    except VerifyMismatchError:
+    except (VerificationError, InvalidHashError):
         return False
 
 
@@ -97,6 +102,119 @@ async def validate_new_password(pw: str) -> None:
             400,
             "Den adgangskode er set i kendte datalæk. Vælg en, du ikke bruger andre steder.",
         )
+
+
+# --- brute force-spærre ----------------------------------------------------
+#
+# /api/auth/login ligger åbent på internettet, og hvert forsøg mod en
+# KENDT mail koster 64 MiB RAM (argon2id's default). Spærren skal derfor
+# ramme, FØR argon2 kører — ellers er den ikke et loft på noget.
+#
+# Der er ÉN tæller, og den er nøglet på afsenderen. En tidligere udgave
+# havde også en tæller pr. mailadresse, men den blokerede aldrig noget:
+# den skrev kun, og de nøgler er præcis dem, en angriber selv bestemmer
+# antallet af. En tæller, der ser ud som en kontrol uden at være det, er
+# værre end ingen — næste session tror, den beskytter noget.
+#
+# Familien kan ikke låses ude af en fremmed: spærringen følger DEN, der
+# banker på, ikke den mailadresse der bankes på.
+#
+# Afsenderens rigtige IP står i CF-Connecting-IP. Den kan ikke forfalskes
+# udefra, SÅ LÆNGE appen kun er nåelig gennem tunnelen (porten binder til
+# 127.0.0.1 i docker-compose.yml). Mangler headeren, falder vi tilbage på
+# socket-adressen — men bag tunnelen er DEN ens for alle, så den spand
+# får et højere loft. Ellers ville fem vilkårlige forsøg låse familien
+# ude, netop dét spærren er nøglet efter afsender for at undgå.
+
+_FORSOEG: dict[str, list[float]] = {}
+IP_MAKS = int(os.getenv("LOGIN_IP_MAKS", "5"))
+IP_VINDUE = int(os.getenv("LOGIN_IP_VINDUE_SEK", "900"))     # 15 min
+DELT_MAKS = int(os.getenv("LOGIN_DELT_MAKS", "50"))          # ukendt afsender
+_LOFT = int(os.getenv("LOGIN_LOFT_NOEGLER", "50000"))   # ~10 MB ved ~200 B/nøgle
+_DELT = "delt:"
+
+
+def afsender(request: Request) -> str:
+    """
+    Kalderens rigtige IP — se noten ovenfor.
+
+    Længden kappes: nøglen kommer fra en header, kalderen selv sætter, og
+    en vilkårligt lang streng må ikke kunne blive en vilkårligt stor
+    dict-nøgle.
+    """
+    ip = (request.headers.get("cf-connecting-ip") or "").strip()
+    if ip:
+        return ip[:64]
+    return _DELT + (request.client.host if request.client else "?")[:64]
+
+
+def _vindue(noegle: str) -> tuple[int, int]:
+    return (DELT_MAKS if noegle.startswith(_DELT) else IP_MAKS), IP_VINDUE
+
+
+def spaerret(noegle: str) -> int:
+    """Sekunder tilbage af spærringen, eller 0 hvis der er forsøg tilbage."""
+    maks, vindue = _vindue(noegle)
+    nu = time.monotonic()
+    forsoeg = [t for t in _FORSOEG.get(noegle, []) if nu - t < vindue]
+    if not forsoeg:
+        # Fjern nøglen helt i stedet for at gemme en tom liste — ellers
+        # allokerer hvert eneste forsøg en plads, der aldrig ryger.
+        _FORSOEG.pop(noegle, None)
+        return 0
+    _FORSOEG[noegle] = forsoeg
+    if len(forsoeg) < maks:
+        return 0
+    return int(vindue - (nu - forsoeg[0])) + 1
+
+
+def _ryd_op() -> None:
+    """
+    Holder tælleren under loftet.
+
+    Rækkefølgen er hele pointen: udløbne nøgler først, så de IKKE
+    spærrede, og først til allersidst de spærrede. En tidligere udgave
+    smed simpelthen de ældste ud — og angriberens egen spærring er den
+    ældste. En anden udgave sprang de spærrede helt over, og så var
+    loftet ikke et loft: et botnet med fem forsøg pr. IP kunne lade
+    tælleren vokse frit, mens oprydningen selv blev dyrere for hvert
+    forsøg.
+    """
+    if len(_FORSOEG) <= _LOFT:
+        return
+    nu = time.monotonic()
+    for noegle in list(_FORSOEG):
+        if all(nu - t >= _vindue(noegle)[1] for t in _FORSOEG.get(noegle, [])):
+            del _FORSOEG[noegle]
+    if len(_FORSOEG) <= _LOFT:
+        return
+
+    maal = max(1, len(_FORSOEG) // 5)
+    def er_spaerret(n: str) -> bool:
+        maks, vindue = _vindue(n)
+        return len([t for t in _FORSOEG.get(n, []) if nu - t < vindue]) >= maks
+
+    frie = sorted((n for n in list(_FORSOEG) if not er_spaerret(n)),
+                  key=lambda n: (_FORSOEG.get(n) or [0])[-1])
+    ryd = frie[:maal]
+    if len(ryd) < maal:
+        frie_set = set(frie)      # hejst ud: bygges ellers forfra pr. nøgle
+        # Alt er spærret. Loftet vinder over spærringerne — ellers æder
+        # tælleren hukommelsen. De NYESTE spærringer beholdes.
+        resten = sorted((n for n in list(_FORSOEG) if n not in frie_set),
+                        key=lambda n: (_FORSOEG.get(n) or [0])[-1])
+        ryd += resten[: maal - len(ryd)]
+    for noegle in ryd:
+        _FORSOEG.pop(noegle, None)
+
+
+def forsoeg_fejlede(noegle: str) -> None:
+    _FORSOEG.setdefault(noegle, []).append(time.monotonic())
+    _ryd_op()
+
+
+def forsoeg_lykkedes(noegle: str) -> None:
+    _FORSOEG.pop(noegle, None)
 
 
 # --- sessioner -------------------------------------------------------------
@@ -171,8 +289,17 @@ def _cf_access_user(db: Session, request: Request) -> User | None:
 def _proxy_user(db: Session, request: Request) -> User | None:
     if not TRUST_PROXY_AUTH:
         return None
+    # Fejl LUKKET. Før stod der `if TRUSTED_PROXY_HOSTS and peer not in ...`,
+    # så en tom liste sprang kontrollen helt over og gjorde en
+    # Remote-User-header til gratis adgang — med Remote-Groups: admins
+    # endda til en admin. Fælden var, at den dokumenterede default
+    # ("caddy") ALDRIG kan matche: request.client.host er en IP fra
+    # socket'en, aldrig et Docker-servicenavn. Så virkede login ikke,
+    # og den nærliggende fejlsøgning var at tømme listen.
+    if not TRUSTED_PROXY_HOSTS:
+        return None
     peer = request.client.host if request.client else None
-    if TRUSTED_PROXY_HOSTS and peer not in TRUSTED_PROXY_HOSTS:
+    if peer not in TRUSTED_PROXY_HOSTS:
         return None
     email = request.headers.get("remote-email") or request.headers.get("remote-user")
     if not email:
@@ -207,6 +334,21 @@ def current_user(
         return None
     user = db.get(User, row.user_id)
     return user if user and user.active else None
+
+
+def require_user(user: User | None = Depends(current_user)) -> User:
+    """
+    Kræver blot en indlogget bruger, uanset rolle.
+
+    Bruges på de ruter, der viser FAMILIENS egne ting — barnets profil,
+    bekræftelseskøen, driftsdetaljer. Appen er et åbent opslagsværk:
+    enhver må scanne en vare og se, hvad familien har bekræftet. Men
+    hvem barnet er, og hvad det reagerer på, er ikke en del af det
+    opslagsværk.
+    """
+    if user is None:
+        raise HTTPException(401, "Log ind for at se det her.")
+    return user
 
 
 def require_curator(user: User | None = Depends(current_user)) -> User:

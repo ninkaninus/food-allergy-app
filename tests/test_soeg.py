@@ -72,7 +72,10 @@ def auth(client):
     pw = "korrekt-hest-batteri-haefteklamme"
     with SessionLocal() as db:
         hh = default_household(db)
-        if not db.query(User).count():
+        # Filtrér på MAILEN, ikke på antal: modulerne deler én database,
+        # og et blankt count() betyder, at modulets egen bruger aldrig
+        # bliver oprettet, hvis et andet modul kørte først.
+        if not db.query(User).filter(User.email == "w@example.dk").count():
             db.add(User(household_id=hh.id, email="w@example.dk", name="William",
                         password_hash=hash_password(pw), role="admin", source="local"))
             db.commit()

@@ -19,6 +19,13 @@ import yaml
 
 MASK_CHAR = "\u2591"  # ░ — samme længde som det maskerede, så offsets holder
 
+# Ord, der indleder en deklaration. Et spor-span må aldrig løbe hen over
+# dem: "kan indeholde spor af nødder ingredienser: mælk" er én sporfrase
+# efterfulgt af en ingrediensliste, ikke én lang sporangivelse. Uden det
+# maskerede spanet mælken ud af contains-passet, og varen blev gul i
+# stedet for rød — under-advarsel, den farlige retning.
+SEKTIONSORD = ("ingrediens", "indhold", "sammensætning", "ingredients")
+
 # OCR-tolerance.
 #
 # Tesseract læser 6-punkts tryk på krøllet folie med omkring 90% konfidens,
@@ -200,6 +207,10 @@ class Ruleset:
                 slut = len(text)
                 for tegn in ".;!":
                     i = text.find(tegn, m.end())
+                    if i != -1:
+                        slut = min(slut, i)
+                for ord_ in SEKTIONSORD:
+                    i = text.find(ord_, m.end())
                     if i != -1:
                         slut = min(slut, i)
                 spans.append((m.start(), min(slut, m.end() + 200)))

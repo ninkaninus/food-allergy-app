@@ -3,6 +3,127 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.19.0 — 21. august 2026
+
+Ingen store nye funktioner. Bekræftelsesskærmen har fået en tredje
+tilstand — og en række fejl er rettet, hvor appen sagde for lidt. Det er
+den farlige retning.
+
+**Appen kunne overse hele ingredienslisten**
+
+- Står »Opbevares ved højst +5 °C« i venstre spalte og deklarationen i
+  højre, læste appen opbevaringen først og smed resten væk. Så stod der
+  »Ved det ikke« om en vare, hvor der tydeligt stod mælk på pakken. Det
+  samme skete, hvis læsningen ramte ét bogstav forkert i ordet
+  »Ingredienser«. Nu opdager appen, at den har klippet det forkerte
+  sted, og bruger hele teksten i stedet.
+- Står »Kan indeholde spor af mælk« ØVERST på etiketten, blev sætningen
+  klippet væk. Den følger nu med, uanset hvor på pakken den står.
+
+**Appen kendte ikke nok danske ord**
+
+- De danske oste manglede helt — feta, brie, gouda, havarti og et dusin
+  til gav ingen advarsel, selvom de italienske gjorde. Det samme gjaldt
+  gedemælk, skovjordbær, helæg, stangselleri, råmarcipan, cherrytomater
+  og alaskasej. Alle er nu med.
+- Stod der »spor af nødder og gedemælk«, hørte I kun om nødderne:
+  gedemælk kendte appen ikke, og så blev mælk slet ikke nævnt. Nu giver
+  den gult.
+
+**Fire ting omkring bekræftelse og opslag**
+
+- **Bekræftelsesskærmen foreslog »fri« om ting, den ikke vidste noget
+  om.** Åbnede I en vare uden ingrediensliste, stod alle allergener
+  allerede på »fri«, og to tryk gjorde varen grøn på grundlag af
+  ingenting. Nu er der tre tilstande: **ikke afgjort**, fri og
+  indeholder, hver med sin farve, sin form og sit ord. Kun to ting er
+  valgt på forhånd: det motoren FANDT, og det I selv har afgjort før.
+  »Fri« foreslås aldrig — appen kan ikke se forskel på en ingrediensliste
+  fra Open Food Facts og en, den selv har læst af et foto, og OCR taber
+  ord. Til gengæld er der en knap, **»Jeg har læst pakken — de uden
+  advarsel er fri«**, så det er ét tryk i stedet for fire. Den springer
+  bevidst de allergener over, hvor etiketten advarer om spor: dér siger
+  etiketten noget, og forskellen mellem spor og indhold er jeres
+  beslutning, ikke knappens. Uafgjorte allergener gemmes ikke.
+- **Et tryk på en urørt allergen gør den ikke længere fri med det
+  samme.** Rundgangen er nu ikke afgjort → indeholder → fri. Det
+  farligste valg skal ikke være det letteste, og knappen ovenfor dækker
+  tilfældet, hvor mange skal være fri på én gang.
+- **Gem dom kunne ramme den forkerte vare.** Dommen blev gemt på det,
+  der stod i stregkodefeltet — ikke på den vare, skærmen viste. Efter et
+  mislykket opslag kunne de to være forskellige. Nu står varens navn og
+  stregkode øverst på bekræftelsesskærmen, så I kan se hvilken.
+- **Den forrige vares svar blev stående.** Scannede I en ny vare, mens
+  signalet var dårligt, stod det gamle — måske grønne — svar på
+  skærmen, indtil den nye var hentet. Fejlede opslaget, stod det der for
+  altid. Nu skifter skærmen til »Henter …« med det samme, og et svar,
+  der kommer for sent, kan ikke længere overhale det nye.
+- **En bekræftet vare kunne ikke scannes igen.** Havde I bekræftet en
+  vare uden at taste deklarationen ind, svarede appen »Opslag
+  mislykkedes (500)« hver eneste gang derefter — netop på de varer, I
+  havde gjort arbejdet på.
+
+**Fem ting, I ikke ser, men som betyder noget**
+
+- **Jeres tastede deklarationer bliver ikke længere slettet.** Hentede
+  appen varen fra Open Food Facts igen efter 14 dage, og der ingen
+  ingrediensliste var, blev jeres egen tekst overskrevet med ingenting.
+  Arbejdet skulle gøres om.
+- **Genimport af regnearket sletter ikke længere jeres stregkoder.** De
+  koblinger, I selv har lavet mellem arkets rækker og rigtige varer,
+  bæres nu over, og importen skriver, hvor mange den fandt.
+- **Appen fryser ikke længere for den ene, mens den anden læser et
+  foto.** En deklarationslæsning tager 2-9 sekunder og spærrede før hele
+  appen imens.
+- **Serveren skriver ikke længere hver scanning i sin log.** Hver
+  stregkode, I slog op, og hvilket barn den blev slået op for, stod i
+  containerens log med tidsstempel.
+- **Et login-smuthul er lukket.** Det krævede en indstilling, I ikke
+  bruger (`TRUST_PROXY_AUTH`), men det skulle aldrig have været muligt.
+  Slår I den nogensinde til, skal `TRUSTED_PROXY_HOSTS` være en
+  IP-adresse — ikke »caddy«.
+
+**Sitet er åbent — nu er det kun det rigtige, der er åbent**
+
+Appen ligger på internettet, så alle kan scanne og slå op. Det er
+meningen. Men et par sider viste mere end det:
+
+- **Barnets navn og allergener kunne ses af enhver.** To steder: siden,
+  appen bruger til at huske, hvem I tjekker for — og selve
+  vareopslaget, som sendte barnets navn og præcis de fire allergener med
+  i svaret, hvis man bare undlod at spørge om noget bestemt. Begge dele
+  er lukket. Slår en fremmed en vare op, vurderes alle 17 allergener.
+  Appen starter heller ikke længere med jeres fire allergener valgt på
+  forhånd — de stod i selve siden, som alle kan hente. Er I logget ind
+  på en telefon uden gemte valg, henter appen dem fra profilen i stedet;
+  ellers slås alle 17 til, indtil I vælger under Indstillinger. Valget
+  bliver i jeres egen telefon.
+- **Bekræftelseskøen og diagnosesiden kræver også login.** Køen viser,
+  hvilke varer I har scannet og hvornår; diagnosesiden viser detaljer om
+  serveren.
+- **Fremmede skriver ikke længere i jeres historik.** Når nogen slår en
+  vare op uden at være logget ind, gemmes opslaget ikke længere som
+  jeres. Jeres egne opslag gemmes som før.
+- **Login spærres efter fem forkerte forsøg** fra samme sted i et
+  kvarter. Uden det kan hvem som helst blive ved med at gætte — og hvert
+  gæt belaster serveren. Spærren rammer den maskine, der banker på, ikke
+  jeres mailadresse: en fremmed skal ikke kunne låse jer ude af jeres
+  egen app ved at gætte forkert, mens I står i Netto.
+- **Fremmede kan ikke fylde jeres bekræftelseskø.** Når nogen udefra slår
+  en vare op, lægges den ikke længere i køen, og en vare, I har afsluttet,
+  bliver ikke åbnet igen.
+
+- **En fremmed ser nu, hvad »Sikker« er målt imod.** Før stod der bare
+  »Alle valgte allergener er manuelt afkrydset«. Nu står der hvilke — og
+  at andre allergener ikke er tjekket. Nogen med et nøddeallergisk barn
+  må ikke læse jeres bekræftelse som en garanti.
+- **Knapper, kun I kan bruge, vises ikke længere for andre.** Før pegede
+  de mod låste døre og svarede med en besked øverst på siden, som var
+  scrollet ud af syne.
+
+**Alt det, værktøjet er til for, er uændret:** alle kan stadig scanne en
+stregkode, få dommen, søge i listen og se, hvad I har bekræftet.
+
 ## 0.18.0 — 12. august 2026
 
 - **Butiksfilteret er væk.** Butik stod kun på arkets varer — en vare,
@@ -55,9 +176,6 @@ Nyeste øverst. Vises i appen via »Nyheder« i bunden.
   i stå.
 - Databasen har også fået sin egen container. Jeres data ligger uændret,
   til I selv vælger at flytte dem (fremgangsmåde i deploy/UNRAID.md).
-
-## 0.16.0 — 11. august 2026
-
 - **»Spor af mælk« er ikke længere det samme som mælk.** Står allergenet
   kun i sporadvarslen nederst på pakken, er varen nu GUL med teksten
   »spor ifølge etiketten — ikke i ingredienslisten«. Står det i selve

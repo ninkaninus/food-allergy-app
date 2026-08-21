@@ -201,7 +201,7 @@ pip install -r requirements.txt
 DATA_DIR=./data-runtime RULES_PATH=./data/allergens.yaml COOKIE_SECURE=0 \
   uvicorn app.main:app --reload
 
-pytest tests/ -q          # 52 tests
+pytest tests/ -q          # 256 tests, 5 springes over uden Tesseract-dansk
 python -m app.cli adduser dig@example.dk "Navn"
 ```
 
@@ -221,6 +221,47 @@ Enhver brugervendt ændring — funktion eller rettelse — skal, i samme commit
 Footeren i appen viser version og »Nyheder« automatisk; frontend skal
 ikke røres. `tests/test_version.py` fejler, hvis `VERSION` mangler sin
 post i changeloggen — de to følges ad, uden undtagelser.
+
+## Agentroller
+
+`.claude/agents/` definerer projektets underagenter. Rutningen er ikke
+kosmetisk — den findes, fordi ét område i denne kodebase kan gøre et barn
+sygt, og resten ikke kan:
+
+| Agent | Område |
+|---|---|
+| `allergen-domaene` | **alt der kan ændre en dom**: `matcher.py`, `allergens.yaml`, OCR-efterbehandlingen |
+| `implementer` | alt andet i appen; sender domsnære opgaver videre |
+| `kodegennemgang` | den eneste gennemgang, før noget pushes til main |
+| `testkoerer` | `pytest tests/ -q`, rapporterer kun fejl |
+| `produktejer` | presser omfanget, skriver historier med acceptkriterier |
+| `ux-gennemgang` | grænsefladen op mod en forælder med én hånd fri i Netto |
+| `data-og-sikkerhed` | barnets data, adgangsmodellen, hvad der forlader systemet |
+| `udgivelse` | versionsbump, changelog, risici — pusher aldrig selv |
+| `Explore` | hurtig, læsende søgning (haiku) |
+
+Viden bor i `.claude/skills/`: `allergen-regler` (motorens efterprøvede
+mekanik), `ocr-deklarationer` (de to OCR-motorer, spaltelæsningen,
+efterbehandlingen og de målte tal), `familiens-data` (persondata og
+adgang), `designsystem` (de fire domme, tokens, copy-regler). **Ændrer du
+mekanikken, ændrer du skillen i samme commit** — ellers gætter næste
+session på noget, der ikke er sandt.
+
+Rutningskommandoer i `.claude/commands/`: `/tjek`, `/regel`, `/ux`, `/data`,
+`/afklar`, `/udgiv`, `/foer-udgivelse`.
+
+To vagter i `scripts/`:
+
+- `vagt-groen.sh` er registreret i frontmatter på `allergen-domaene` og
+  `implementer` — de to agenter, der kan ændre en dom. **I hovedsessionen
+  kører den kun, hvis du selv registrerer den** i `.claude/settings.json`
+  (se `settings.json.forslag`); den fil er maskinlokal og ligger ikke i
+  repoet. Vagten fanger to ting, der peger den farlige vej: en ny grøn dom uden for bekræftelsesruten, og et regelsæt der
+  er blevet blødere (færre `contains`, flere `exclude`). Den beviser ingen
+  fejl — den beder om en begrundelse.
+- `vagt-udgivelse.sh` (PreToolUse på Bash, kun i `udgivelse`-agenten)
+  blokerer push, tag, merge og deploy. Push til main ER deploy, og det trin
+  hører til hovedsessionen med et menneske, der kigger med.
 
 ## Sprog
 

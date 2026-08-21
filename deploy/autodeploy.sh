@@ -77,12 +77,18 @@ wait_healthy() {
 }
 
 deploy() {
+    # `|| return 1` på HVER linje, ikke kun `set -e`. Funktionen kaldes som
+    # `deploy "$want" || rollback`, og en `||`-kontekst slår errexit fra
+    # inde i funktionen — uden dem ville en fejlet `git reset` blive fulgt
+    # af `set_env` og `docker compose up` alligevel, og deploy() ville
+    # returnere 0 fra den sidste kommando. Så stod .env og STATE_FILE på
+    # den nye commit, mens repoet stod på den gamle.
     local sha=$1
-    run_git reset --hard --quiet "$sha"
-    set_env APP_IMAGE "$IMAGE:sha-$sha"
+    run_git reset --hard --quiet "$sha" || return 1
+    set_env APP_IMAGE "$IMAGE:sha-$sha" || return 1
     # App og OCR-tjeneste ruller ud som ét par — samme commit, samme tag.
-    set_env OCR_IMAGE "$IMAGE-ocr:sha-$sha"
-    docker compose up -d --quiet-pull
+    set_env OCR_IMAGE "$IMAGE-ocr:sha-$sha" || return 1
+    docker compose up -d --quiet-pull || return 1
 }
 
 rollback() {
@@ -93,7 +99,10 @@ rollback() {
         exit 1
     fi
     log "ruller tilbage til $last"
-    deploy "$last"
+    if ! deploy "$last"; then
+        log "FEJL: selve tilbagerulningen til $last kunne ikke startes — kig manuelt på det NU"
+        exit 1
+    fi
     if wait_healthy; then
         log "rollback lykkedes — appen kører på $last, men den nye commit er stadig i stykker"
     else
@@ -139,7 +148,14 @@ main() {
     fi
 
     log "deployer $want (fra $(run_git rev-parse --short HEAD))"
-    deploy "$want"
+    # `|| rollback` på BEGGE linjer. Scriptet kører med `set -e`, så en
+    # fejlende `docker compose up` inde i deploy() ville før afslutte
+    # scriptet dér — og linjen med rollback blev aldrig nået. Resultatet
+    # var det værste af begge: repoet reset --hard'et til den nye commit,
+    # .env pinnet til de nye images, de GAMLE containere kørende videre,
+    # og STATE_FILE på den gamle commit. Serveren kørte altså gammel kode
+    # og påstod ny, hver 5. minut, med én logline.
+    deploy "$want" || rollback
     wait_healthy || rollback
 
     echo "$want" >"$STATE_FILE"

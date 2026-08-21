@@ -43,6 +43,29 @@ allergens:
       - modermælkserstatning
       - mysepulver
       - mysost
+      # Danske ostenavne uden "-ost" bagest. Lookbehind'en kræver
+      # ordgrænse FØR mønsteret, så "feta" og "brie" skal stå eksplicit —
+      # de fanges ikke af noget andet mønster. Fundet ved gennemgang
+      # 2026-08-21: kun de italienske stod på listen.
+      - feta
+      - halloumi
+      - hytteost
+      - salatost
+      - gedeost
+      - fåreost
+      - brie
+      - camembert
+      - gouda
+      - havarti
+      - danbo
+      - emmental
+      - gorgonzola
+      - pecorino
+      - grana padano
+      - gedemælk
+      - fåremælk
+      - råmælk
+      - surmælk
       # protein-fraktioner (de farlige, som folk overser)
       - kasein
       - kaseinat
@@ -51,7 +74,6 @@ allergens:
       - natriumkaseinat
       - calciumkaseinat
       - laktalbumin
-      - lactalbumin
       - laktoglobulin
       - lactoglobulin
       - valle
@@ -155,6 +177,9 @@ allergens:
       "ægte lakrids". Den maskeres væk før matchning.
     contains:
       - æg
+      - helæg
+      - andeæg
+      - vagtelæg
       - hønseæg
       - æggeblomme
       - æggehvide
@@ -270,6 +295,9 @@ allergens:
       - hummer
       - jomfruhummer
       - krebs
+      - langust
+      - kongekrabbe
+      - taskekrabbe
       - flodkrebs
       - scampi
       - krill
@@ -309,6 +337,12 @@ allergens:
       - laks
       - tun
       - makrel
+      - alaskasej
+      - mørksej
+      - kulmule
+      - helleflynder
+      - rødfisk
+      - pollock
       - sild
       - brisling
       - sardin
@@ -400,6 +434,7 @@ allergens:
       - mandler
       - bittermandel
       - marcipan
+      - råmarcipan
       - marzipan
       - nougat
       - nugat
@@ -442,6 +477,8 @@ allergens:
       - selleri
       - knoldselleri
       - bladselleri
+      - stangselleri
+      - blegselleri
       - celery
 
   - slug: sennep
@@ -494,6 +531,7 @@ allergens:
       - natriumbisulfit
       - natriumdisulfit
       - natriummetabisulfit
+      - kaliummetabisulfit
       - kaliumdisulfit
       - kaliumhydrogensulfit
       - calciumsulfit
@@ -548,6 +586,8 @@ allergens:
       - venusmusling
       - østers
       - østerssauce
+      - vinbjergsnegl
+      - sandmusling
       - blæksprutte
       - calamari
       - snegl
@@ -575,6 +615,9 @@ allergens:
       producenten skal ringes op.
     contains:
       - jordbær
+      - skovjordbær
+      - markjordbær
+      - vildjordbær
       - jordbærpuré
       - jordbærpure
       - jordbærsaft
@@ -642,6 +685,10 @@ allergens:
       "tomat", og tomatillo er en anden plante — deraf de tre exclude.
     contains:
       - tomat
+      - cherrytomat
+      - blommetomat
+      - cocktailtomat
+      - datteltomat
       - ketchup
       - passata
       - tomato

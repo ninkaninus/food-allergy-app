@@ -28,10 +28,61 @@ jobs:
       - run: pip install -r requirements.txt pytest
       - run: pytest tests/ -q
 
+  # Sikkerhedsnettet: hvis nogen nogensinde committer en rigtig hemmelighed
+  # eller en database, fanges det her i stedet for på GitHub.
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Ingen hemmeligheder eller databaser i træet
+        run: |
+          fail=0
+          for f in .env deploy/Caddyfile deploy/authelia/configuration.yml \
+                   deploy/authelia/users_database.yml deploy/authelia/db.sqlite3; do
+            if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+              echo "::error::$f er committet — den skal være gitignoreret"
+              fail=1
+            fi
+          done
+          if git ls-files | grep -E '\.(db|sqlite3?)$'; then
+            echo "::error::en database er committet"
+            fail=1
+          fi
+          # Familiens regneark er deres egne data — se NOTICE.md og
+          # .claude/skills/familiens-data. Det er den ene fil, der aldrig
+          # må i git, og den var ikke dækket før.
+          if git ls-files | grep -E '\.(xlsx|xls|ods)$'; then
+            echo "::error::et regneark er committet — det er familiens egne data"
+            fail=1
+          fi
+          exit $fail
+
+  # Bygger imaget OG starter det. Et image, der bygger fint men dør ved
+  # opstart, ville ellers blive udgivet — serveren henter det, healthcheck
+  # timer ud efter 90 s, og den automatiske tilbagerulning fyrer.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Byg image
+        run: docker build -t allergiscan:ci .
+      - name: Containeren svarer på /healthz
+        run: |
+          docker run -d --name ci -p 8000:8000 \
+            -e COOKIE_SECURE=0 -e CHECK_PWNED_PASSWORDS=0 allergiscan:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8000/healthz && break || sleep 2
+          done
+          curl -fsS http://localhost:8000/healthz
+          docker logs ci
+
   byg-og-udgiv:
     # Kun rigtige push til main udgiver — pull requests testes bare.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: test
+    # ALLE tre porte, ikke kun testene. hygiene og docker lå før i
+    # ci.yml, altså et andet workflow, og kunne derfor ikke blokere en
+    # udgivelse — de kørte ved siden af og var langsommere end den.
+    needs: [test, hygiene, docker]
     runs-on: ubuntu-latest
     permissions:
       contents: read

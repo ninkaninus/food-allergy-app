@@ -161,17 +161,64 @@ def import_liste(kilde: str | None = None, valideret_mod: str | None = None) -> 
 
     # Tabellen ejes af importen og indeholder kun importerede rækker —
     # genskab den, så nye kolonner ikke kræver håndholdt migrering.
+    #
+    # MEN: `ean` ejes IKKE af importen. Den sættes kun af et menneske
+    # (POST /api/liste/{id}/stregkode) og er dét, der giver en række
+    # værdi — uden EAN kan den aldrig bære en dom. Den skal derfor bæres
+    # over, ellers sletter en genimport familiens eget arbejde lydløst,
+    # og ROADMAP'en opfordrer direkte til at genimportere.
     from .db import engine
+
+    def noegle(navn, producent, kategori):
+        return (
+            (navn or "").strip().lower(),
+            (producent or "").strip().lower(),
+            (kategori or "").strip().lower(),
+        )
+
+    with SessionLocal() as db:
+        koblinger: dict[tuple, str] = {}
+        for r in db.scalars(select(ImportedProduct).where(ImportedProduct.ean.isnot(None))):
+            k = noegle(r.navn, r.producent, r.kategori)
+            if k in koblinger and koblinger[k] != r.ean:
+                # AFBRYD FØR droppet. Nøglen (navn, producent, kategori) er
+                # ikke unik, og to rækker med samme nøgle ville begge få den
+                # sidste EAN — en stille sammenblanding af to varer. Tabellen
+                # slettes af importen, så det skal fanges nu, ikke bagefter.
+                raise SystemExit(
+                    f"AFBRUDT: to rækker deler nøglen «{r.navn}» "
+                    f"({r.producent or 'uden producent'}, {r.kategori or 'uden kategori'}) "
+                    f"med hver sin stregkode: {koblinger[k]} og {r.ean}.\n"
+                    "Ret det ene navn i arket, eller fjern den ene kobling, "
+                    "og kør importen igen. Intet er ændret."
+                )
+            koblinger[k] = r.ean
+
     tabel = ImportedProduct.__table__
     tabel.drop(engine, checkfirst=True)
     tabel.create(engine)
 
+    baaret, tabt = 0, dict(koblinger)
+    brugt: set[tuple] = set()
     with SessionLocal() as db:
         hh = default_household(db)
         for r in rows:
-            db.add(ImportedProduct(household_id=hh.id, **r))
+            k = noegle(r.get("navn"), r.get("producent"), r.get("kategori"))
+            # Kun ÉN række må arve koblingen. Deler to ark-rækker nøgle,
+            # ville de ellers begge få stregkoden — og CLAUDE.md siger, at
+            # `ean` kun sættes af et menneske.
+            ean = koblinger.get(k) if k not in brugt else None
+            if ean:
+                brugt.add(k)
+                baaret += 1
+                tabt.pop(k, None)
+            db.add(ImportedProduct(household_id=hh.id, ean=ean, **r))
         db.commit()
     print(f"Importerede {len(rows)} varer — alle bekræftet uden {valideret_mod}.")
+    if koblinger:
+        print(f"Stregkoder båret over: {baaret} af {len(koblinger)}.")
+        for (navn, _, _), ean in tabt.items():
+            print(f"  MISTET: {ean} hørte til «{navn}», som ikke findes i det nye ark.")
 
 
 def migrate(kilde: str, maal: str | None = None) -> None:

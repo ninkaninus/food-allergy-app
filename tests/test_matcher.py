@@ -263,3 +263,84 @@ OCR_GARBLED_EU14 = [
 @pytest.mark.parametrize("slug,text,expected", OCR_GARBLED_EU14)
 def test_ocr_tolerance_eu14(slug, text, expected):
     assert R.evaluate(slug, text, ocr=True).state is expected
+
+
+# --- sammensætninger med allergenet BAGEST ------------------------------
+# Lookbehind'en (?<![a-zæøå]) rammer præfikser, ikke suffikser, så hvert
+# af disse ord SKAL stå eksplicit i contains. Gennemgangen 2026-08-21
+# fandt 30+ tavse ord — den her tabel er vagten, der opdager det næste.
+
+ETIKETORD = [
+    # (slug, tekst som den står på en dansk etiket)
+    ("maelkeprotein", "Feta 20%, oliven, oregano"),
+    ("maelkeprotein", "Halloumi, olivenolie"),
+    ("maelkeprotein", "Hytteost 5%, purløg"),
+    ("maelkeprotein", "Brie, karse"),
+    ("maelkeprotein", "Gouda 45+, salt"),
+    ("maelkeprotein", "Havarti 45+"),
+    ("maelkeprotein", "Danbo 30+"),
+    ("maelkeprotein", "Gedemælk, salt"),
+    ("maelkeprotein", "Salatost i olie"),
+    ("jordbaer", "Skovjordbær 40%, sukker"),
+    ("jordbaer", "Markjordbær, sukker"),
+    ("aeg", "Helæg (pasteuriseret), sukker"),
+    ("noedder", "Råmarcipan 25%, sukker"),
+    ("tomat", "Cherrytomater 40%, olivenolie"),
+    ("tomat", "Blommetomat, basilikum"),
+    ("selleri", "Stangselleri, gulerod"),
+    ("sulfit", "Vin, kaliummetabisulfit"),
+    ("fisk", "Alaskasej 60%, rasp"),
+    ("krebsdyr", "Langust, hvidvin"),
+    ("krebsdyr", "Kongekrabbe, mayonnaise"),
+    ("bloeddyr", "Sandmusling i lage"),
+]
+
+
+@pytest.mark.parametrize("slug,tekst", ETIKETORD)
+def test_allergen_bagest_i_ordet_findes(slug, tekst):
+    v = R.evaluate(slug, tekst)
+    assert v.state == State.CONTAINS, f"{tekst!r} gav {v.state.value} for {slug}"
+
+
+# De undtagelser, ordene ovenfor IKKE må ødelægge.
+@pytest.mark.parametrize("slug,tekst", [
+    ("maelkeprotein", "Kokosmælk, vand"),
+    ("maelkeprotein", "Kakaosmør, sukker"),
+    ("maelkeprotein", "Mælkebøtterod, cikorie"),
+    ("maelkeprotein", "Mælkesyre (E270)"),
+    ("aeg", "Ægte vanilje, sukker"),
+    ("fisk", "Sejt rugbrød, hvedemel"),
+])
+def test_undtagelserne_holder_stadig(slug, tekst):
+    assert R.evaluate(slug, tekst).state != State.CONTAINS, f"falsk positiv: {tekst!r}"
+
+
+def test_sporangivelse_taber_ikke_et_allergen_etiketten_naevner():
+    """"Spor af gedemælk" skal give gul for mælkeprotein, ikke tavshed."""
+    for tekst, slug in [
+        ("Mel, salt. Kan indeholde spor af nødder og gedemælk.", "maelkeprotein"),
+        ("Mel, salt. Kan indeholde spor af mælk og stangselleri.", "selleri"),
+    ]:
+        v = R.evaluate(slug, tekst)
+        assert v.state == State.TRACE_RISK, f"{tekst!r} gav {v.state.value} for {slug}"
+
+
+def test_spor_passet_ser_ikke_exclude():
+    """
+    Spor-passet kører `contains` på RÅ tekst (`_find(udsnit, udsnit, ...)`),
+    ikke på den maskerede — det ser altså ikke `exclude`. Derfor giver
+    "spor af mælkesyre" GULT, selvom "mælkesyre" i ingredienslisten er
+    maskeret væk og giver gråt.
+
+    De to pas svarer altså forskelligt på det samme ord. Retningen er den
+    sikre (over-advarsel), og det er derfor ikke rettet — men det er en
+    reel uoverensstemmelse, og testen står som en vagt: ændrer nogen
+    spor-passet til at maskere, skal det være en bevidst beslutning.
+    """
+    i_listen = R.evaluate("maelkeprotein", "Mel, mælkesyre (E270), salt.")
+    i_sporet = R.evaluate("maelkeprotein", "Mel. Kan indeholde spor af mælkesyre.")
+    assert i_listen.state == State.UNKNOWN, "exclude holdt ikke i contains-passet"
+    assert i_sporet.state == State.TRACE_RISK, (
+        f"spor-passet gav {i_sporet.state.value} — hvis det er blevet "
+        "maskeret, så opdatér allergen-regler-skillen i samme commit"
+    )

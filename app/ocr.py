@@ -29,6 +29,14 @@ SECTION_MARKERS = [
     "ingredienser", "ingrediens", "indhold", "sammensætning",
     "ingredients", "zutaten", "ingrediënten", "ainesosat",
 ]
+# Markører, der utvetydigt indleder en deklaration. "indhold" og
+# "sammensætning" er svage — de står også på pakker om noget helt andet
+# ("Indhold: 500 g") — og et udklip efter dem er værd at efterprøve.
+STRONG_SECTION_MARKERS = {
+    "ingredienser", "ingrediens", "ingredients", "zutaten",
+    "ingrediënten", "ainesosat",
+}
+
 END_MARKERS = [
     "næringsindhold", "næringsdeklaration", "nutrition", "energi ",
     "opbevares", "opbevaring", "bedst før", "mindst holdbar", "nettovægt",
@@ -268,6 +276,39 @@ def _slut(tekst: str, fra: int = 0) -> int:
     return end
 
 
+def _kommaer(t: str) -> int:
+    return t.count(",")
+
+
+def _klippet_forkert(beholdt: str, kasseret: str) -> bool:
+    """
+    Ligner det, vi smed væk, en ingrediensliste mere end det, vi beholdt?
+
+    Kommaet er ingredienslistens signatur — ingredienser står adskilt.
+    Er der mindst to flere i det kasserede, har vi klippet det forkerte
+    sted, og så er udklippet værre end ingen udklipning.
+
+    Det sker, fordi `_slut()` tager den TIDLIGSTE slutmarkør. Står
+    "Opbevares ved højst +5 °C" i venstre spalte og deklarationen i
+    højre, læser spaltelæseren opbevaringen først, og hele
+    ingredienslisten ryger. Det samme, når OCR taber ét bogstav i
+    "Ingredienser" (INGRED1ENSER), så startmarkøren ikke rammer.
+
+    Retningen er hele pointen: at tage for meget med giver støj og
+    måske en falsk advarsel. At tage for lidt med gør en vare med mælk
+    i tavs.
+
+    Men vagten må KUN redde et udklip, der slet ikke ligner en
+    ingrediensliste — ikke et, der bare er kortere end resten af pakken.
+    Danske næringstabeller bruger komma som decimaltegn ("fedt 12,4 g,
+    heraf mættede 2,1 g"), så en helt normal etiket har flere kommaer
+    uden for listen end i den. Uden `< 3` blev hele pakketeksten sendt
+    til motoren, og "2,5 dl sødmælk" i en tilberedningsanvisning gjorde
+    varen rød. Det ville rulle 0.17.0 tilbage i det stille.
+    """
+    return _kommaer(beholdt) < 3 and _kommaer(kasseret) >= _kommaer(beholdt) + 2
+
+
 def extract_section(text: str) -> str:
     """
     Klipper deklarationen ud af al den anden tekst på pakken.
@@ -277,12 +318,17 @@ def extract_section(text: str) -> str:
     "Ingredienser:" foran, og OCR taber det tit alligevel — før tog vi
     så hele teksten med, ernæringstabel, opblandingsvejledning og det
     hele. Slutningen kan vi kende uafhængigt af begyndelsen.
+
+    Ser udklippet forkert ud (se `_klippet_forkert`), kasseres det, og
+    hele teksten bruges. Et sikkerhedsnet, der kun virker, når
+    udklipningen fejler fuldstændigt, er ikke et sikkerhedsnet.
     """
     low = text.lower()
     # Tidligste markør vinder; står to på samme position ("ingredienser"
     # og "ingrediens"), vinder den længste — ellers blev "er:" hængende
     # forrest i den udklippede tekst.
     best: tuple[int, int] | None = None  # (position, markørlængde)
+    staerk = False
     for m in SECTION_MARKERS:
         hit = _markoer(m).search(low)
         if hit is None:
@@ -290,6 +336,7 @@ def extract_section(text: str) -> str:
         i = hit.start()
         if best is None or i < best[0] or (i == best[0] and len(m) > best[1]):
             best = (i, len(m))
+            staerk = m in STRONG_SECTION_MARKERS
 
     if best is None:
         start, slut = 0, _slut(text)
@@ -299,10 +346,77 @@ def extract_section(text: str) -> str:
         slut = _slut(text, start)
         sektion = text[start:slut].lstrip(" :.-\n").strip()
 
-    return (sektion + _spor_fra_resten(text, slut)).strip()
+    # Stod der "Ingredienser:", tror vi på udklippet. Vagten er til for de
+    # etiketter, hvor markøren manglede eller var svag — dét er dér, der
+    # bliver klippet forkert. Efterprøver vi også et udklip efter en stærk
+    # markør, kaster vi rigtige udklip væk på korte lister ("Ingredienser:
+    # Ris 100%." + en tilberedningsanvisning med smør i).
+    if not staerk and _klippet_forkert(sektion, text[:start] + text[slut:]):
+        # Rå tekst i ORIGINAL rækkefølge er farlig: står sporfrasen før
+        # listen og OCR har tabt punktummet, æder _spor_spans()' 200-tegns
+        # vindue ingredienslisten, og en rød vare bliver gul. Læg derfor
+        # sporsætningerne bagest, som den normale vej gør.
+        omraader = _spor_omraader(text, stop_ved_linjeskift=True)
+        krop = text
+        for a, b in sorted(omraader, reverse=True):
+            krop = krop[:a] + " " + krop[b:]
+        spor = "".join(" " + text[a:b].strip() for a, b in omraader)
+        return (krop.strip() + spor).strip()
+
+    # Sporadvarsler hentes tilbage fra BEGGE sider af udklippet. Står
+    # "Kan indeholde spor af mælk" før "Ingredienser:", ligger den i
+    # hovedet, ikke i halen — og en tabt sporadvarsel er under-advarsel.
+    spor = _spor_uddrag(text[:start]) + _spor_uddrag(text[slut:])
+    return (sektion + spor).strip()
 
 
 def _spor_fra_resten(text: str, fra: int) -> str:
+    """Bevaret navn: sporadvarsler i alt fra `fra` og frem."""
+    return _spor_uddrag(text[fra:])
+
+
+def _spor_omraader(rest: str, stop_ved_linjeskift: bool = False) -> list[tuple[int, int]]:
+    """
+    Hvor står sporsætningerne i `rest` — sammenflettede spans.
+
+    `stop_ved_linjeskift` bruges KUN, når et kasseret udklip skal skilles
+    ad. Uden det løber spanet til første punktum, og taber OCR punktummet
+    (»Næringsindhold pr.« er det næste, der har et), sluger spanet hele
+    ingredienslisten. I den normale vej er den lange udgave rigtig: en
+    sporsætning kan sagtens brydes over to linjer, og at klippe den midt
+    over ville tabe allergennavnene — under-advarsel.
+    """
+    low = rest.lower()
+    fundet: list[tuple[int, int]] = []
+    for frase in TRACE_PHRASES:
+        for hit in _markoer(frase).finditer(low):
+            s = hit.start()
+            grænser = [i for i in (rest.find(".", s),) if i != -1]
+            if stop_ved_linjeskift:
+                grænser += [i for i in (rest.find("\n", s),) if i != -1]
+            # En sporsætning indeholder ALDRIG starten på en
+            # ingrediensliste. Uden det her kunne området løbe fra
+            # sporfrasen og hen over deklarationen, når OCR har tabt både
+            # punktum og linjeskift — og så blev en RØD vare gul.
+            for markoer in SECTION_MARKERS:
+                h = _markoer(markoer).search(low, s + 1)
+                if h is not None:
+                    grænser.append(h.start())
+            e = min([g + 1 for g in grænser] + [len(rest), s + 200])
+            fundet.append((s, e))
+    if not fundet:
+        return []
+    fundet.sort()
+    flettet: list[tuple[int, int]] = []
+    for s, e in fundet:
+        if flettet and s <= flettet[-1][1]:
+            flettet[-1] = (flettet[-1][0], max(flettet[-1][1], e))
+        else:
+            flettet.append((s, e))
+    return flettet
+
+
+def _spor_uddrag(rest: str) -> str:
     """
     Henter sporadvarsler ud af den del, der blev klippet væk.
 
@@ -311,7 +425,6 @@ def _spor_fra_resten(text: str, fra: int) -> str:
     kan spises. Sætningen tages fra frasen til punktum (eller 200 tegn,
     for OCR taber punktummer).
     """
-    rest = text[fra:]
     if not rest.strip():
         return ""
     low = rest.lower()

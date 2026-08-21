@@ -22,6 +22,11 @@ from .auth import (
     COOKIE,
     SESSION_DAYS,
     current_user,
+    afsender,
+    forsoeg_fejlede,
+    forsoeg_lykkedes,
+    require_user,
+    spaerret,
     issue_session,
     require_admin,
     require_curator,
@@ -46,7 +51,11 @@ from .models import (
     now,
 )
 
-app = FastAPI(title="AllergiScan", version=VERSION)
+# docs_url/redoc_url/openapi_url slået fra: appen ligger åbent på
+# internettet, og /docs er et komplet kort over alle ruter — også de
+# skrivende. Det offentlige er dommen og listen, ikke API-fladen.
+app = FastAPI(title="AllergiScan", version=VERSION,
+              docs_url=None, redoc_url=None, openapi_url=None)
 STATIC = Path(__file__).parent / "static"
 
 
@@ -70,15 +79,30 @@ def _active_slugs(db: Session, profile_id: int) -> list[str]:
 
 
 def _queue(db: Session, hh_id: int, ean: str, reason: str) -> None:
-    existing = db.scalar(
+    """
+    Læg varen i bekræftelseskøen, eller genåbn den post der allerede er der.
+
+    Unique-constrainten på ReviewItem er (husstand, EAN) UANSET status.
+    Ledte vi kun efter en "pending" post, ville en vare, køen én gang har
+    lukket, give en dublet — og dermed 500 på hver eneste scanning af
+    netop de varer, familien har gjort arbejdet på. Køen er ét sæt af
+    åbne poster pr. vare, ikke en historik.
+    """
+    item = db.scalar(
         select(ReviewItem).where(
             ReviewItem.household_id == hh_id,
             ReviewItem.product_ean == ean,
-            ReviewItem.status == "pending",
         )
     )
-    if existing is None:
+    if item is None:
         db.add(ReviewItem(household_id=hh_id, product_ean=ean, reason=reason))
+    elif item.status != "pending":
+        item.status = "pending"
+        item.reason = reason
+        item.resolved_at = None
+        # created_at bevares med vilje: /api/queue sorterer på den, og en
+        # vare, der køes igen ved hver scanning, ville ellers hoppe til
+        # toppen hver gang og skubbe det ægte nye ned.
 
 
 def _ord_maengde(*tekster: str | None) -> set[str]:
@@ -286,16 +310,26 @@ async def _ensure_product(db: Session, ean: str, refresh: bool = False) -> tuple
         p = Product(ean=ean)
         db.add(p)
 
-    p.name = res["name"]
-    p.brand = res["brand"]
-    p.quantity = res["quantity"]
-    p.image_url = res["image_url"]
-    p.ingredients_text = res["ingredients_text"]
-    p.ingredients_lang = res["ingredients_lang"]
-    p.ingredients_hash = ingredients_hash(res["ingredients_text"])
+    # En TOM værdi fra OFF må aldrig overskrive noget, vi allerede har.
+    # OFF kender kun ~10 % af familiens varer med ingrediensliste, så
+    # "fundet, men uden tekst" er normaltilfældet — og den tekst, et
+    # menneske har tastet af den fysiske pakke, er det dyreste arbejde i
+    # appen. Har OFF derimod en tekst, vinder den: det er dét, der får
+    # ingredients_hash til at skifte, når producenten ændrer opskriften.
+    p.name = res["name"] or p.name
+    p.brand = res["brand"] or p.brand
+    p.quantity = res["quantity"] or p.quantity
+    p.image_url = res["image_url"] or p.image_url
+    if res["ingredients_text"]:
+        p.ingredients_text = res["ingredients_text"]
+        p.ingredients_lang = res["ingredients_lang"]
+        p.ingredients_hash = ingredients_hash(res["ingredients_text"])
+    # source hører til HELE rækken, ikke kun teksten: navn, mærke, mængde
+    # og billede kom fra OFF uanset. attribution() tæller på det felt for
+    # at opfylde ODbL — se NOTICE.md.
+    p.source = "off"
     p.off_allergen_tags = res["off_allergen_tags"]
     p.off_trace_tags = res["off_trace_tags"]
-    p.source = "off"
     p.fetched_at = now().replace(tzinfo=None)
     db.flush()
 
@@ -312,7 +346,10 @@ async def _ensure_product(db: Session, ean: str, refresh: bool = False) -> tuple
 
 
 @app.get("/api/profiles")
-def list_profiles(db: Session = Depends(get_session)):
+def list_profiles(
+    _: User = Depends(require_user),
+    db: Session = Depends(get_session),
+):
     hh = default_household(db)
     out = []
     for prof in db.scalars(select(Profile).where(Profile.household_id == hh.id)):
@@ -380,9 +417,9 @@ def toggle_allergen(
 @app.get("/api/scan/{ean}")
 async def scan(
     ean: str,
-    profile_id: int | None = None,
     allergens: str | None = None,
     refresh: bool = False,
+    bruger: User | None = Depends(current_user),
     db: Session = Depends(get_session),
 ):
     """
@@ -397,17 +434,35 @@ async def scan(
         raise HTTPException(400, "stregkoden ser ikke rigtig ud")
 
     hh = default_household(db)
-    prof = (
-        db.get(Profile, profile_id)
-        if profile_id
-        else db.scalar(select(Profile).where(Profile.household_id == hh.id))
-    )
+    # Profilen vælges IKKE af kalderen længere. Før kom `profile_id` fra
+    # query-strengen og blev slået op uden at tjekke husstanden, så en
+    # fremmed kunne skrive i netop dette barns dagbog og selv vælge
+    # barnet. Appen sendte den aldrig selv — frontend bruger `allergens=`.
+    prof = db.scalar(select(Profile).where(Profile.household_id == hh.id))
+    # ?refresh=true springer 14-dages-cachen over. Den må en ulogindet
+    # kalder ikke styre.
+    #
+    # BEMÆRK at hegnet kun dækker den TVUNGNE genhentning. En ukendt
+    # stregkode giver stadig ét udgående Open Food Facts-kald og én
+    # Product-række, uanset hvem der spørger — det er prisen for, at
+    # opslaget er åbent. Negative svar caches ikke, så samme ukendte
+    # stregkode koster et friskt kald hver gang. Skal det lukkes, er det
+    # en ændring af den offentlige flade, ikke en kommentar.
+    if refresh and bruger is None:
+        refresh = False
     if allergens is not None:
         slugs = [s for s in (t.strip() for t in allergens.split(",")) if s in RULES.allergens]
         if not slugs:
             raise HTTPException(400, "ingen gyldige allergener angivet")
-    else:
+    elif bruger is not None:
         slugs = _active_slugs(db, prof.id) if prof else list(RULES.allergens)
+    else:
+        # En anonym kalder uden `allergens=` får ALLE 17 vurderet — ikke
+        # barnets sæt. Faldt vi tilbage på profilen, ville selve svarets
+        # LÆNGDE røbe, hvilke fire allergener barnet reagerer på, uden at
+        # nogen havde spurgt om det. Appen selv sender altid parameteren
+        # (frontend læser den af localStorage).
+        slugs = list(RULES.allergens)
 
     product, source = await _ensure_product(db, ean, refresh=refresh)
 
@@ -424,26 +479,42 @@ async def scan(
         }
 
     if product is None:
-        _queue(db, hh.id, ean, "not_found")
-        db.add(Scan(household_id=hh.id, profile_id=prof.id if prof else None,
-                    product_ean=ean, result="unknown"))
+        # Dagbogen OG køen er familiens egne: de føres kun, når en af dem
+        # er logget ind. Ellers kunne enhver på internettet fylde
+        # arbejdsbunken — og genåbne poster, familien havde lukket.
+        if bruger is not None:
+            _queue(db, hh.id, ean, "not_found")
+            db.add(Scan(household_id=hh.id, profile_id=prof.id if prof else None,
+                        product_ean=ean, result="unknown"))
         db.commit()
         return {
             "ean": ean,
             "found": False,
             "result": "unknown",
-            "message": "Ikke i Open Food Facts. Lagt i bekræftelseskøen — "
-                       "tag et billede af varedeklarationen og tast den ind.",
+            # Køen føres kun for familien, så beskeden må ikke love en
+            # fremmed, at varen er lagt i den — eller bede dem om at gøre
+            # noget, de ikke har adgang til.
+            "message": (
+                "Ikke i Open Food Facts. Lagt i bekræftelseskøen — "
+                "tag et billede af varedeklarationen og tast den ind."
+                if bruger is not None else
+                "Ikke i Open Food Facts. Appen ved ingenting om den her vare — "
+                "læs etiketten."
+            ),
             "allergens": [],
         }
 
     rows, verdicts, stale = _verdict_rows(db, hh.id, product, slugs)
-    if stale:
+    if stale and bruger is not None:
         _queue(db, hh.id, ean, "recipe_changed")
 
     result = aggregate(verdicts)
 
-    if result in ("unverified", "caution") or not product.ingredients_text:
+    # Køen er familiens arbejdsbunke — se noten længere oppe. En fremmeds
+    # opslag må hverken lægge noget i den eller genåbne en lukket post.
+    if bruger is not None and (
+        result in ("unverified", "caution") or not product.ingredients_text
+    ):
         _queue(
             db,
             hh.id,
@@ -451,8 +522,9 @@ async def scan(
             "no_ingredients" if not product.ingredients_text else "maybe_hit",
         )
 
-    db.add(Scan(household_id=hh.id, profile_id=prof.id if prof else None,
-                product_ean=ean, result=result))
+    if bruger is not None:                      # se kommentaren ovenfor
+        db.add(Scan(household_id=hh.id, profile_id=prof.id if prof else None,
+                    product_ean=ean, result=result))
     db.commit()
 
     return {
@@ -461,7 +533,7 @@ async def scan(
         "source": source,
         "result": result,
         "gammel_liste": _gammel_liste_hint(db, hh.id, product.name, product.brand, ean),
-        "fotos": _foto_svar(db, hh.id, ean),
+        "fotos": _foto_svar(db, hh.id, ean, bruger),
         "product": {
             "name": product.name,
             "brand": product.brand,
@@ -472,7 +544,15 @@ async def scan(
             "ingredients_lang": product.ingredients_lang,
         },
         "allergens": rows,
-        "profile": {"id": prof.id, "name": prof.name} if prof else None,
+        # Køen og dagbogen føres kun for en indlogget bruger. Er sessionen
+        # løbet ud (30 dage), får man en helt normal dom — men varen lander
+        # ikke i køen. Det skal kunne SES på skærmen, ikke kun udledes af
+        # at knappen i headeren har skiftet tekst.
+        "gemt": bruger is not None,
+        # Barnets navn er ikke en del af det offentlige opslagsværk. Det
+        # er helbredsoplysninger om et navngivet, mindreårigt menneske —
+        # se .claude/skills/familiens-data.
+        "profile": {"id": prof.id, "name": prof.name} if (prof and bruger) else None,
     }
 
 
@@ -494,6 +574,9 @@ def confirm(
     det eneste sted, der kræver login. Navnet i decided_by kommer fra
     sessionen, ikke fra klienten.
     """
+    ean = "".join(ch for ch in ean if ch.isdigit())
+    if len(ean) < 8:
+        raise HTTPException(400, "stregkoden ser ikke rigtig ud")
     hh = default_household(db)
     product = db.get(Product, ean)
     if product is None:
@@ -548,7 +631,10 @@ def confirm(
 
 
 @app.get("/api/queue")
-def queue(db: Session = Depends(get_session)):
+def queue(
+    _: User = Depends(require_user),
+    db: Session = Depends(get_session),
+):
     hh = default_household(db)
     out = []
     for item in db.scalars(
@@ -603,12 +689,28 @@ def login(
     response: Response,
     db: Session = Depends(get_session),
 ):
-    user = db.scalar(select(User).where(User.email == body.email.strip().lower()))
+    mail = body.email.strip().lower()
+    ip = afsender(request)
+
+    # Spærren rammer FØR argon2 overhovedet kører — den er både
+    # gætte-spærren og loftet på RAM-forbruget. Den er nøglet på
+    # afsenderen, ikke på mailadressen: en fremmed skal ikke kunne låse
+    # familien ude af deres egen app ved at gætte forkert på deres mail.
+    tilbage = spaerret(ip)
+    if tilbage:
+        raise HTTPException(
+            429, f"For mange forsøg. Prøv igen om {tilbage // 60 + 1} minutter."
+        )
+
+    user = db.scalar(select(User).where(User.email == mail))
     # Samme svar uanset om mailen findes — ellers kan man opremse brugere.
     if user is None or not user.active or not user.password_hash:
+        forsoeg_fejlede(ip)
         raise HTTPException(401, "Forkert mail eller adgangskode.")
     if not verify_password(user.password_hash, body.password):
+        forsoeg_fejlede(ip)
         raise HTTPException(401, "Forkert mail eller adgangskode.")
+    forsoeg_lykkedes(ip)
 
     token = issue_session(db, user, request.headers.get("user-agent"))
     response.set_cookie(
@@ -984,6 +1086,7 @@ def product_filter(
     db: Session = Depends(get_session),
 ):
     """Fritekstfiltrering på hele indekset. Kommasepareret."""
+    limit = max(1, min(limit, 200))   # samme loft som /api/soeg
     split = lambda v: [t.strip() for t in (v or "").split(",") if t.strip()]  # noqa: E731
     rows = ix.filter_products(db, exclude=split(exclude), include=split(include), limit=limit)
     unindexed = sum(1 for r in rows if not r["indexed"])
@@ -1042,7 +1145,7 @@ def _rens(ean: str, slags: str) -> tuple[str, str]:
     return r, slags
 
 
-def _foto_svar(db: Session, hh_id: int, ean: str) -> dict:
+def _foto_svar(db: Session, hh_id: int, ean: str, bruger: User | None = None) -> dict:
     ud = {}
     for f in db.scalars(
         select(ProductPhoto).where(
@@ -1054,7 +1157,10 @@ def _foto_svar(db: Session, hh_id: int, ean: str) -> dict:
             "url": f"/api/products/{ean}/foto/{f.slags}?v={v}",
             "mini_url": f"/api/products/{ean}/foto/{f.slags}?v={v}&mini=1",
             "taget_at": f.taget_at.isoformat(timespec="minutes"),
-            "taget_af": f.taget_af,
+            # taget_af er en VOKSENS navn og ryger ikke ud af huset.
+            # Det står i databasen som sporbarhed på, hvem der tog
+            # billedet — ikke som noget, en fremmed skal kunne læse.
+            **({"taget_af": f.taget_af} if bruger is not None else {}),
             "bredde": f.bredde,
             "hoejde": f.hoejde,
         }
@@ -1062,7 +1168,7 @@ def _foto_svar(db: Session, hh_id: int, ean: str) -> dict:
 
 
 @app.post("/api/products/{ean}/foto")
-async def gem_foto(
+def gem_foto(
     ean: str,
     slags: str = "deklaration",
     image: UploadFile = File(...),
@@ -1080,7 +1186,7 @@ async def gem_foto(
     from PIL import Image, ImageOps
 
     ean, slags = _rens(ean, slags)
-    data = await image.read()
+    data = image.file.read()
     if len(data) > 30 * 1024 * 1024:
         raise HTTPException(413, "Billedet er for stort (max 30 MB).")
     try:
@@ -1120,7 +1226,7 @@ async def gem_foto(
     f.taget_af = user.name
     f.taget_at = now().replace(tzinfo=None)
     db.commit()
-    return {"ok": True, "slags": slags, "fotos": _foto_svar(db, hh.id, ean)}
+    return {"ok": True, "slags": slags, "fotos": _foto_svar(db, hh.id, ean, user)}
 
 
 @app.get("/api/products/{ean}/foto/{slags}")
@@ -1174,7 +1280,7 @@ def slet_foto(
 
 
 @app.post("/api/ocr")
-async def ocr_declaration(
+def ocr_declaration(
     image: UploadFile = File(...),
     _: User = Depends(require_curator),
 ):
@@ -1185,7 +1291,7 @@ async def ocr_declaration(
     """
     from .ocr_klient import laes_deklaration
 
-    data = await image.read()
+    data = image.file.read()
     if len(data) > 12 * 1024 * 1024:
         raise HTTPException(413, "Billedet er for stort (max 12 MB).")
     res = laes_deklaration(data)
@@ -1275,7 +1381,10 @@ def version():
 
 
 @app.get("/api/diagnostik")
-async def diagnostik(db: Session = Depends(get_session)):
+async def diagnostik(
+    _: User = Depends(require_user),
+    db: Session = Depends(get_session),
+):
     """
     Til fejlsøgning når "der sker ikke noget": hvilken database kigger
     appen i, er der data i den, og kan Open Food Facts nås fra

@@ -34,6 +34,23 @@ htmlcov/
 .deploy-state
 .deploy-lock
 
+# --- Familiens eget regneark --------------------------------------------
+# Det er jeres data, ikke kodens. Må aldrig committes, indsættes i en
+# issue eller bruges som testfixture. Se .claude/skills/familiens-data.
+*.xlsx
+*.xls
+*.ods
+liste*.csv
+
+# --- Agentopsætning ------------------------------------------------------
+# .claude/agents, /commands og /skills HØRER med i repoet — de beskriver
+# projektet. Resten er maskinlokalt eller privat arbejdsmateriale.
+.claude/settings.local.json
+.claude/settings.json.forslag
+.claude/scheduled_tasks.lock
+.claude/launch.json
+.claude/agent-memory/
+
 # --- Værktøj ------------------------------------------------------------
 .DS_Store
 .idea/

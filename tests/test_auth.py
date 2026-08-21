@@ -5,12 +5,14 @@ import os, pathlib, sys, tempfile
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 TMP = tempfile.mkdtemp()
-os.environ.update(
-    DATA_DIR=TMP,
-    RULES_PATH=str(pathlib.Path(__file__).resolve().parents[1] / "data" / "allergens.yaml"),
-    COOKIE_SECURE="0",
-    CHECK_PWNED_PASSWORDS="0",
-)
+# Miljøet sættes i tests/conftest.py — den er den ENESTE kilde.
+# `setdefault`, ikke `update`: et modul, der tvinger sin egen værdi,
+# gør resultatet afhængigt af importrækkefølgen, og så afgør det
+# tilfældige alfabet, hvilken database suiten kører på.
+os.environ.setdefault("DATA_DIR", TMP)
+os.environ.setdefault("RULES_PATH", str(pathlib.Path(__file__).resolve().parents[1] / "data" / "allergens.yaml"))
+os.environ.setdefault("COOKIE_SECURE", "0")
+os.environ.setdefault("CHECK_PWNED_PASSWORDS", "0")
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,7 +29,10 @@ PW = "korrekt-hest-batteri-haefteklamme"
 def client():
     init_db()
     with SessionLocal() as db:
-        if not db.query(User).count():
+        # Filtrér på MAILEN, ikke på antal: modulerne deler én database,
+        # og et blankt count() betyder, at modulets egen bruger aldrig
+        # bliver oprettet, hvis et andet modul kørte først.
+        if not db.query(User).filter(User.email == "w@example.dk").count():
             db.add(User(household_id=default_household(db).id, email="w@example.dk",
                         name="William", password_hash=hash_password(PW), role="admin"))
             db.commit()
@@ -91,14 +96,18 @@ def test_ocr_rejected_without_login(client):
     assert r.status_code == 401
 
 
-def test_toggle_allergen_rejected_without_login(client):
+def test_toggle_allergen_rejected_without_login(client, auth):
     """
     Fluebenene i PWA'en er localStorage og rører aldrig serveren — de sendes
     med som `allergens=` på hvert opslag. Det her endpoint skriver den GEMTE
     profil, altså den tilstand `scan` falder tilbage på, når parameteren
     mangler. At ændre hvad appen advarer om, er en skrivning som enhver anden.
     """
-    pid = client.get("/api/profiles").json()[0]["id"]
+    # /api/profiles kræver login siden appen blev åbnet — barnets navn og
+    # allergener er ikke en del af det offentlige opslagsværk. Id'et hentes
+    # derfor med en indlogget klient; selve pointen er, at SKRIVNINGEN
+    # nedenfor afvises uden login.
+    pid = auth.get("/api/profiles").json()[0]["id"]
     r = client.post(
         f"/api/profiles/{pid}/allergens", json={"slug": "maelkeprotein", "active": False}
     )

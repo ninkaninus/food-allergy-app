@@ -20,4 +20,9 @@ ENV DATA_DIR=/data RULES_PATH=/app/data/allergens.yaml PYTHONPATH=/app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s \
   CMD python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')"
-CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000"]
+# --no-access-log: uvicorns adgangslog skriver hele request-linjen, altså
+# "GET /api/scan/5701234567890?allergens=jordbaer&profile_id=1" — hver
+# scannet stregkode og hvilket barn den blev slået op for, med tidsstempel.
+# Det er den samme fødevaredagbog som scan-tabellen, bare i docker logs,
+# hvor den har andre adgangsregler og ingen udløbstid.
+CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000","--no-access-log"]

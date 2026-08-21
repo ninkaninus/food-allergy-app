@@ -12,12 +12,14 @@ import os, pathlib, sys, tempfile
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 TMP = tempfile.mkdtemp()
-os.environ.update(
-    DATA_DIR=TMP,
-    RULES_PATH=str(pathlib.Path(__file__).resolve().parents[1] / "data" / "allergens.yaml"),
-    COOKIE_SECURE="0",
-    CHECK_PWNED_PASSWORDS="0",
-)
+# Miljøet sættes i tests/conftest.py — den er den ENESTE kilde.
+# `setdefault`, ikke `update`: et modul, der tvinger sin egen værdi,
+# gør resultatet afhængigt af importrækkefølgen, og så afgør det
+# tilfældige alfabet, hvilken database suiten kører på.
+os.environ.setdefault("DATA_DIR", TMP)
+os.environ.setdefault("RULES_PATH", str(pathlib.Path(__file__).resolve().parents[1] / "data" / "allergens.yaml"))
+os.environ.setdefault("COOKIE_SECURE", "0")
+os.environ.setdefault("CHECK_PWNED_PASSWORDS", "0")
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -71,13 +73,35 @@ def test_nyt_allergen_faar_raekke_paa_eksisterende_profil(monkeypatch):
         assert pa.active is False, "et nyt allergen må ikke slå sig selv til"
 
 
+def _indlogget():
+    """
+    /api/profiles kræver login, siden appen blev åbnet for alle: barnets
+    navn og allergener er ikke en del af det offentlige opslagsværk.
+    """
+    from app.auth import hash_password
+    from app.db import default_household
+    from app.models import User
+
+    pw = "korrekt-hest-batteri-haefteklamme"
+    with SessionLocal() as db:
+        if not db.query(User).filter(User.email == "profiltest@example.dk").count():
+            db.add(User(household_id=default_household(db).id,
+                        email="profiltest@example.dk", name="Profiltest",
+                        password_hash=hash_password(pw), role="curator"))
+            db.commit()
+    c = TestClient(app)
+    assert c.post("/api/auth/login",
+                  json={"email": "profiltest@example.dk", "password": pw}).status_code == 200
+    return c
+
+
 def test_nyt_allergen_er_synligt_i_profil_api(monkeypatch):
     """Selve symptomet: uden en række er der ingen boks at sætte kryds i."""
     init_db()
     _udvid_regelsaettet(monkeypatch, "synlighedstest")
     init_db()
 
-    r = TestClient(app).get("/api/profiles")
+    r = _indlogget().get("/api/profiles")
     assert r.status_code == 200
     slugs = {a["slug"]: a for p in r.json() for a in p["allergens"]}
     assert "synlighedstest" in slugs, "allergenet kan ikke ses i UI'et"

@@ -106,7 +106,22 @@ mark.trace_risk{color:var(--caution);font-weight:700;text-decoration:underline;
 .chip{display:inline-flex;align-items:center;gap:7px;border:1.5px solid var(--rule);
   padding:8px 12px;font-size:14px;background:var(--surface);cursor:pointer}
 .chip[aria-pressed="true"]{border-color:var(--ink);background:var(--ink);color:var(--paper);font-weight:700}
-.chip small{font-size:10px;letter-spacing:.08em;text-transform:uppercase;opacity:.7}
+/* Bekræftelseschipsene har TRE tilstande og styres på data-v, ikke på
+   aria-pressed (som er to-tilstands og derfor ville lyve om den
+   tredje). Prikken er den samme som i #rows, så listen og knapperne
+   taler samme sprog — og "fri" kan ses at være sat, i stedet for at
+   ligne en urørt chip. */
+.chip .dot{margin-top:0;flex:none}
+.chip[data-v="contains"]{border-color:var(--unsafe);color:var(--unsafe);font-weight:700}
+.chip[data-v="free"]{border-color:var(--safe);color:var(--safe);font-weight:700}
+.chip[data-v="null"]{border-style:dashed;color:var(--muted)}
+.chip[data-v="null"] .dot{background:transparent;border:2px solid var(--rule)}
+/* Ordet er det ENESTE signal, der ikke er kulør — prik og kant er begge
+   farve. Derfor hverken opacity eller 10px: en rødgrøn-farveblind skal
+   kunne læse forskel på "fri" og "indeholder" i butiksbelysning. */
+.chip small{font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+#alleFri{border-color:var(--safe);color:var(--safe)}
+#alleFri:disabled{border-color:var(--rule);color:var(--muted)}
 .hint{font-size:13px;color:var(--muted);margin:10px 0 0;line-height:1.45}
 .warn{border-left:3px solid var(--caution);padding:12px 14px;background:var(--surface);
   font-size:13.5px;line-height:1.5;color:var(--muted);margin:14px 0}
@@ -203,12 +218,16 @@ footer a{color:var(--muted)}
         <h3>Deklaration, som motoren læste den</h3>
         <div class="body" id="decl"></div>
       </div>
-      <div class="acts">
+      <div class="acts" id="acts">
         <button class="btn ghost" id="frontBtn">Fotografér forsiden</button>
         <button class="btn ghost" id="ocrBtn">Fotografér deklaration</button>
         <button class="btn ghost" id="ocrPickBtn">Brug gemt billede</button>
         <button class="btn" id="confirmBtn">Bekræft mod emballagen</button>
       </div>
+      <!-- Appen er åben for alle, men kun familien kan bekræfte. Knapperne
+           ovenfor peger mod låste døre for alle andre — så vis dem ikke. -->
+      <p class="hint" id="kunFamilien" style="padding:0 var(--pad) 16px" hidden>
+        Kun familien bag appen kan bekræfte varer og gemme billeder.</p>
     </section>
 
     <!-- To inputs, samme arbejdsgang: capture tvinger telefonens kamera
@@ -220,6 +239,9 @@ footer a{color:var(--muted)}
 
     <section class="sec" id="confirmPanel" hidden>
       <h3>Bekræft mod emballagen</h3>
+      <!-- Hvilken vare. Uden den kan man gøre en vare grøn uden at få at
+           vide hvilken — og kortet er tit scrollet ud af syne. -->
+      <p class="hint" id="confirmVare"></p>
       <p class="hint" id="ocrStatus"></p>
       <textarea id="declEdit" placeholder="Ingredienser: …" aria-label="Ingrediensliste"></textarea>
       <div class="acts" id="tekstVaerktoej" style="padding:8px 0 0" hidden>
@@ -227,7 +249,15 @@ footer a{color:var(--muted)}
         <button class="btn ghost" id="visHele" type="button">Vis hele teksten</button>
       </div>
       <ul class="chips" id="confirmChips" style="margin:14px 0"></ul>
-      <p class="hint">Tryk for at skifte mellem <b>fri</b> og <b>indeholder</b>. Grøn kræver, at du har læst den fysiske pakke.</p>
+      <p class="hint">Tryk for at skifte mellem <b>ikke afgjort</b>, <b>fri</b> og <b>indeholder</b>. Grøn kræver, at du har læst den fysiske pakke.</p>
+      <!-- Rækkefølgen er med vilje: man skal LÆSE hvilke allergener der er
+           uafgjorte, FØR knappen der afgør dem. Og knappen bliver stående
+           som disabled i stedet for at forsvinde — forsvandt den, rykkede
+           »Gem dom« op i hullet, og et dobbelttryk gjorde varen grøn. -->
+      <p class="warn" id="confirmUafgjort" style="margin-top:10px"></p>
+      <div class="acts" style="padding:6px 0 14px">
+        <button class="btn ghost" id="alleFri" type="button" disabled>Jeg har læst pakken — de uden advarsel er fri</button>
+      </div>
       <div class="acts" style="padding:12px 0 0">
         <button class="btn ghost" id="cancelConfirm">Fortryd</button>
         <button class="btn" id="saveConfirm">Gem dom</button>
@@ -358,12 +388,17 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':
 
 /* ---------- lokale valg. Ingen konto, ingen server. ---------- */
 const KEY = 'allergiscan.prefs.v1';
+// Default er TOM, ikke et bestemt sæt. Filen serveres af GET / til
+// enhver, så en hårdkodet liste her ville udstille familiens valg i
+// klartekst — uden at nogen behøvede JS eller en browser. Og det gælder
+// også en kommentar, der nævner dem. Tom liste betyder "alle 17", både
+// her og på serveren.
 const prefs = Object.assign(
-  {name:'Barn', allergens:['maelkeprotein','aeg','jordbaer','banan']},
+  {name:'', allergens:[]},
   JSON.parse(localStorage.getItem(KEY) || '{}')
 );
 const savePrefs = () => { localStorage.setItem(KEY, JSON.stringify(prefs)); paintWho(); };
-const paintWho = () => { $('#who').textContent = prefs.name || '—'; };
+const paintWho = () => { $('#who').textContent = prefs.name || 'alle allergener'; };
 
 let ALLERGENS = [], USER = null, LAST = null;
 
@@ -373,13 +408,15 @@ const COPY = {
   unverified:['Ikke bekræftet','Ved det ikke','Motoren fandt ingenting — men det er ikke det samme som frit.'],
   safe:      ['Bekræftet','Sikker','Alle valgte allergener er manuelt afkrydset mod emballagen.'],
   unknown:   ['Ukendt vare','Ingen data','Stregkoden findes ikke i Open Food Facts. Fotografér deklarationen.'],
-  error:     ['Opslag fejlede','Prøv igen','Serveren kunne ikke nå Open Food Facts. Varen er ikke slået op.']
+  error:     ['Opslag fejlede','Prøv igen','Serveren kunne ikke nå Open Food Facts. Varen er ikke slået op.'],
+  henter:    ['Slår op','Henter …','Varen slås op nu. Vent med at lægge den i kurven.']
 };
 const BASIS = {manual:'bekræftet af et menneske', off_allergen_tag:'allergen-tag fra Open Food Facts',
   off_trace_tag:'sportag fra Open Food Facts', text_match:'fundet i ingredienslisten',
   text_maybe:'usikker ingrediens i listen', no_text:'ingen ingrediensliste',
   trace_statement:'SPOR ifølge etiketten — ikke i ingredienslisten',
   trace_unspecified:'etiketten advarer om spor, men siger ikke hvilke',
+  ocr_fuzzy:'omtrentligt match i OCR-tekst — skal efterses',
   not_found_in_text:'ikke fundet i teksten'};
 
 /* ---------- visninger ---------- */
@@ -401,30 +438,71 @@ function koblingLinje(gl, ean){
     : knyttet
       ? `<button class="link" data-kobl="${gl.id}" data-fjern="1">fjern koblingen</button>`
       : `<button class="link" data-kobl="${gl.id}">det er denne vare</button>`;
-  return `<p class="meta">&#128203; ${knyttet ? 'Knyttet til' : 'Ligner'} <b>${esc(gl.navn)}</b>`
+  return `<p class="meta">${knyttet ? 'Knyttet til' : 'Ligner'} <b>${esc(gl.navn)}</b>`
     + `${gl.producent ? ' (' + esc(gl.producent) + ')' : ''} fra jeres liste`
     + `${gl.valideret_mod ? ' — bekræftet uden ' + esc(gl.valideret_mod) + ',' : ' —'}`
     + ` men tjek stadig emballagen. ${knap}</p>`;
 }
 
+// Sætter dommen til én tilstand og rydder alt, der hørte til den
+// FORRIGE vare. Uden det bliver et grønt "Sikker" stående, mens den
+// næste vare hentes — og for evigt, hvis opslaget fejler. Telefonen har
+// lige vibreret, fladen er grøn, og det er en anden vare i hånden.
+function visSlab(r, forklaring){
+  const [eyebrow, shout, standard] = COPY[r] || COPY.unverified;
+  $('#slab').dataset.r = r;
+  $('#eyebrow').textContent = eyebrow;
+  $('#shout').textContent = shout;
+  $('#explain').textContent = forklaring || standard;
+  $('#prod').innerHTML = '';
+  $('#rows').innerHTML = '';
+  $('#decl').textContent = 'Ingen ingrediensliste registreret.';
+  $('#fotoRk').hidden = true;
+  $('#confirmPanel').hidden = true;
+  $('#verdict').hidden = false;
+}
+
+let opslagNr = 0;
+
 async function lookup(code){
+  const mit = ++opslagNr;
   const ean = String(code ?? $('#ean').value).replace(/\D/g,'');
-  if(ean.length < 8){ $('#ean').focus(); return; }
+  if(ean.length < 8){
+    $('#ean').focus();
+    $('#scanHint').textContent = 'Stregkoden er for kort — den skal have mindst 8 cifre.';
+    return;
+  }
   $('#ean').value = ean;
-  const q = new URLSearchParams({allergens: prefs.allergens.join(',')});
+  // Den gamle dom ryger væk FØR kaldet, ikke efter svaret.
+  LAST = null;
+  $('#scanHint').textContent = '';
+  visSlab('henter');
+  // Tom liste = spørg ikke om noget bestemt; serveren vurderer alle 17.
+  const q = new URLSearchParams(
+    prefs.allergens.length ? {allergens: prefs.allergens.join(',')} : {});
   let r;
   try {
     r = await fetch(`/api/scan/${ean}?${q}`);
   } catch {
     // En fejl må ALDRIG ligne "der skete ikke noget" — så scanner man
-    // bare videre og tror, varen var ukendt.
-    $('#scanHint').textContent = 'Ingen forbindelse til serveren. Intet blev slået op.';
+    // bare videre og tror, varen var ukendt. Beskeden skal stå i
+    // slabben, ikke i en hint-linje der er scrollet af skærmen.
+    if(mit !== opslagNr) return;      // et nyere opslag har overhalet
+    visSlab('error', 'Ingen forbindelse til serveren. Varen blev ikke slået op.');
     return;
   }
-  if(!r.ok){ $('#scanHint').textContent = 'Opslag mislykkedes ('+r.status+').'; return; }
-  $('#scanHint').textContent = '';
-  LAST = await r.json();
+  if(mit !== opslagNr) return;
+  if(!r.ok){
+    visSlab('error', 'Varen blev ikke slået op. Prøv igen.');
+    return;
+  }
+  const svar = await r.json();
+  if(mit !== opslagNr) return;
+  LAST = svar;
   render(LAST);
+  if(LAST && LAST.gemt === false)
+    $('#scanHint').textContent =
+      'Ikke logget ind — denne scanning gemmes ikke i jeres kø.';
 }
 
 function highlight(text, rows){
@@ -444,6 +522,19 @@ function highlight(text, rows){
   return out + esc(text.slice(cur));
 }
 
+// Hvad "Sikker" faktisk betyder — sagt med navns nævnelse. En fremmed,
+// hvis barn ikke tåler nødder, må ikke læse familiens "bekræftet fri for
+// mælk, æg, jordbær og banan" som "sikker at spise".
+function safeForklaring(d){
+  const navne = (d.allergens || []).map(a => a.name);
+  if(!navne.length) return COPY.safe[2];
+  const liste = navne.length > 1
+    ? navne.slice(0, -1).join(', ') + ' og ' + navne[navne.length - 1]
+    : navne[0];
+  return `Bekræftet fri for ${liste} — af familien bag appen, mod den fysiske pakke. `
+       + `Andre allergener er ikke tjekket.`;
+}
+
 function render(d){
   $('#verdict').hidden = false;
   $('#confirmPanel').hidden = true;
@@ -452,7 +543,9 @@ function render(d){
   $('#slab').dataset.r = key;
   $('#eyebrow').textContent = eb;
   $('#shout').textContent = sh;
-  $('#explain').textContent = d.message || ex;
+  // For "safe" navngiver vi allergenerne. d.message ville ellers vinde,
+  // og en fremmed skal kunne se, hvad "Sikker" er målt imod.
+  $('#explain').textContent = key === 'safe' ? safeForklaring(d) : (d.message || ex);
 
   const p = d.product || {};
   // Hint fra den importerede godkendt-liste: et navnematch, aldrig en dom.
@@ -683,13 +776,19 @@ $('#ocrFile').onchange = $('#ocrPick').onchange = async e => {
             return esc(a.name) + (a.approximate && w
               ? ` (OCR læste «${esc(w.excerpt.trim())}»)` : '');
           }).join(', ')
-        : '<br>Motoren fandt ingen af dine allergener — men OCR kan have tabt dem. Læs teksten igennem.')
+        : (d.allergens?.length
+            ? '<br>Motoren fandt ingen af dine allergener — men OCR kan have tabt dem. Læs teksten igennem.'
+            : '<br>Motoren blev slet ikke kørt på det her billede. Læs teksten selv.'))
     + (approx.length ? '<br>Ordene i citationstegn blev læst upræcist. Tjek dem først.' : '');
 
   // Forudfyld knapperne efter forhåndstjekket, ikke efter den gamle dom.
+  // KUN det, motoren fandt, er afgjort. Resten står som ikke afgjort:
+  // OCR-tekst er netop dét, appen selv siger kan have tabt allergener,
+  // og en forudfyldt "fri" gør motorens ikke-viden til et menneskes
+  // underskrift.
   const st = {};
   for(const a of d.allergens || []) if(prefs.allergens.includes(a.slug))
-    st[a.slug] = a.state === 'contains' ? 'contains' : 'free';
+    st[a.slug] = a.state === 'contains' ? 'contains' : null;
   if(Object.keys(st).length){
     $('#confirmChips').dataset.state = JSON.stringify(st);
     paintConfirmChips();
@@ -719,37 +818,131 @@ function openConfirm(){
   $('#confirmErr').hidden = true;
   $('#declEdit').value = LAST?.product?.ingredients_text || '';
   $('#ocrStatus').textContent = '';
+  $('#confirmVare').textContent =
+    (LAST?.product?.name || 'Ukendt vare') + ' — ' + (LAST?.ean || '');
+  // Forudfyld kun, når motoren faktisk har haft en ingrediensliste at
+  // læse. Uden liste (no_text) er "fri" ikke en forudfyldning, det er et
+  // gæt — og to tryk ville gøre varen grøn på grundlag af ingenting.
+  // trace_risk forudfyldes aldrig: etiketten siger noget, og forskellen
+  // mellem spor og indhold er brugerens beslutning, ikke appens.
+  // Kun to ting er forudfyldt: det motoren FANDT, og det et menneske
+  // allerede har afgjort. Alt andet står som ikke afgjort.
+  //
+  // »Fri« forudfyldes ALDRIG. Motoren kan sige »fandt ingenting« om en
+  // tekst, den selv har læst af et foto — og OCR taber ord. En
+  // forudfyldt »fri« ville gøre motorens ikke-viden til et menneskes
+  // underskrift, og appen kan ikke se forskel på en tekst fra Open Food
+  // Facts og en, den selv har OCR-læst. Knappen »Alle resterende: fri«
+  // gør det til ét tryk i stedet — men det er stadig et tryk.
   const state = {};
-  for(const a of LAST?.allergens || []) state[a.slug] = a.state === 'contains' ? 'contains' : 'free';
+  for(const a of LAST?.allergens || []){
+    state[a.slug] =
+      // Kun de to tilstande, chippen kan vise. Confirm-endpointet
+      // accepterer hele State-enummet, og en gemt trace_risk gav før
+      // "undefined" på knappen — og et klik dropped slug'en helt.
+      (a.basis === 'manual' && (a.state === 'free' || a.state === 'contains'))
+        ? a.state
+      : a.state === 'contains' ? 'contains'
+      : null;
+  }
   $('#confirmChips').dataset.state = JSON.stringify(state);
   paintConfirmChips();
   $('#confirmPanel').scrollIntoView({behavior:'smooth', block:'center'});
 }
 
+const CHIP_TEKST = {contains:'indeholder', free:'fri', null:'ikke afgjort'};
+// Rundgang: ikke afgjort -> fri -> indeholder -> ikke afgjort.
+// null -> contains -> free -> null. Det letteste, man kan gøre ved en
+// urørt chip, må ikke være at gøre den grøn; #alleFri dækker det tilfælde,
+// hvor mange skal være fri på én gang.
+const CHIP_NAESTE = {null:'contains', contains:'free', free:null};
+
 function paintConfirmChips(){
   const st = JSON.parse($('#confirmChips').dataset.state || '{}');
   $('#confirmChips').innerHTML = Object.entries(st).map(([slug, v]) => {
     const a = ALLERGENS.find(x => x.slug === slug);
-    return `<li><button class="chip" data-slug="${slug}" aria-pressed="${v === 'contains'}">
-      ${esc(a?.name || slug)} <small>${v === 'contains' ? 'indeholder' : 'fri'}</small></button></li>`;
+    const navn = esc(a?.name || slug);
+    return `<li><button class="chip" data-slug="${slug}" data-v="${v || 'null'}"
+      data-navn="${navn}" aria-label="${navn}: ${CHIP_TEKST[v || 'null']}">
+      <span class="dot ${v || ''}"></span>
+      ${navn} <small>${CHIP_TEKST[v || 'null']}</small></button></li>`;
   }).join('');
   $('#confirmChips').querySelectorAll('.chip').forEach(b => b.onclick = () => {
     const st2 = JSON.parse($('#confirmChips').dataset.state);
-    st2[b.dataset.slug] = st2[b.dataset.slug] === 'contains' ? 'free' : 'contains';
+    const ny = CHIP_NAESTE[st2[b.dataset.slug] || 'null'] ?? null;
+    st2[b.dataset.slug] = ny;
     $('#confirmChips').dataset.state = JSON.stringify(st2);
-    paintConfirmChips();
+    // Opdatér knappen PÅ STEDET. Gentegnede vi hele listen, ville den
+    // trykkede knap blive destrueret, og fokus falde til <body> — så
+    // skulle man tabbe forfra for hvert tryk i rundgangen.
+    b.dataset.v = ny || 'null';
+    b.querySelector('.dot').className = 'dot ' + (ny || '');
+    b.querySelector('small').textContent = CHIP_TEKST[ny || 'null'];
+    b.setAttribute('aria-label', `${b.dataset.navn}: ${CHIP_TEKST[ny || 'null']}`);
+    visUafgjorte(JSON.parse($('#confirmChips').dataset.state));
   });
+  visUafgjorte(st);
 }
+
+// Uafgjorte allergener gemmes ikke — sig det, i stedet for at lade
+// brugeren tro, at varen blev afklaret.
+function visUafgjorte(st){
+  const uafgjort = Object.entries(st).filter(([, v]) => !v).map(([slug]) =>
+    ALLERGENS.find(x => x.slug === slug)?.name || slug);
+  const sporSlugs = new Set((LAST?.allergens || [])
+    .filter(a => a.state === 'trace_risk').map(a => a.slug));
+  const spor = Object.keys(st).filter(x => !st[x] && sporSlugs.has(x))
+    .map(x => ALLERGENS.find(y => y.slug === x)?.name || x);
+  const oevrige = uafgjort.filter(n => !spor.includes(n));
+
+  $('#alleFri').disabled = !oevrige.length;
+  $('#confirmUafgjort').textContent = !uafgjort.length
+    ? 'Alle allergener er afgjort.'
+    : (spor.length
+        ? 'Etiketten advarer om spor af: ' + spor.join(', ')
+          + ' — tag stilling til dem enkeltvis. '
+        : '')
+      + (oevrige.length ? 'Ikke afgjort: ' + oevrige.join(', ') + '.' : '');
+}
+
+// Ét tryk i stedet for fire — men stadig en aktiv beslutning, ikke en
+// forudfyldning. Forskellen er hele pointen: brugeren trykker på noget,
+// der siger, hvad det gør.
+$('#alleFri').onclick = () => {
+  const st = JSON.parse($('#confirmChips').dataset.state || '{}');
+  // Spor springes over. Etiketten SIGER noget om dem, og forskellen
+  // mellem spor og indhold er brugerens beslutning — ikke noget en
+  // samleknap må tage på deres vegne.
+  const spor = new Set((LAST?.allergens || [])
+    .filter(a => a.state === 'trace_risk').map(a => a.slug));
+  for(const slug of Object.keys(st)) if(!st[slug] && !spor.has(slug)) st[slug] = 'free';
+  $('#confirmChips').dataset.state = JSON.stringify(st);
+  paintConfirmChips();
+};
 
 $('#confirmBtn').onclick = openConfirm;
 $('#cancelConfirm').onclick = () => { $('#confirmPanel').hidden = true; };
 
 $('#saveConfirm').onclick = async () => {
-  const ean = $('#ean').value.replace(/\D/g,'');
-  const body = {
-    verdicts: JSON.parse($('#confirmChips').dataset.state || '{}'),
-    ingredients_text: $('#declEdit').value.trim() || null
-  };
+  // Varen på KORTET, ikke i indtastningsfeltet. Feltet kan stå på en
+  // anden stregkode end den, kortet viser — fx efter et mislykket
+  // opslag — og så ville dommen lande på den forkerte vare.
+  const ean = LAST?.ean;
+  if(!ean){
+    $('#confirmErr').hidden = false;
+    $('#confirmErr').textContent = 'Ingen vare er slået op. Slå varen op først.';
+    return;
+  }
+  const alle = JSON.parse($('#confirmChips').dataset.state || '{}');
+  const verdicts = Object.fromEntries(Object.entries(alle).filter(([, v]) => v));
+  const tekst = $('#declEdit').value.trim() || null;
+  if(!Object.keys(verdicts).length && !tekst){
+    $('#confirmErr').hidden = false;
+    $('#confirmErr').textContent =
+      'Der er ikke noget at gemme endnu — tast deklarationen ind, eller tryk dig igennem allergenerne.';
+    return;
+  }
+  const body = {verdicts, ingredients_text: tekst};
   const r = await fetch(`/api/products/${ean}/confirm`, {
     method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
   if(r.status === 401 || r.status === 403){
@@ -788,7 +981,9 @@ function chip(tekst, valgt, antal, deaktiveret){
 async function soeg(){
   const p = new URLSearchParams({
     q: soegState.q, status: soegState.status,
-    allergens: prefs.allergens.join(','),   // domme måles altid mod profilen
+    // Tom liste udelades, som i lookup() — ellers svarer serveren 400,
+    // og fanen står tavst tilbage med gamle resultater.
+    ...(prefs.allergens.length ? {allergens: prefs.allergens.join(',')} : {}),
   });
   if(soegState.fri.size) p.set('fri_for', [...soegState.fri].join(','));
   if(soegState.kategori) p.set('kategori', soegState.kategori);
@@ -946,6 +1141,8 @@ function paintPrefChips(){
 async function refreshAuth(){
   const d = await (await fetch('/api/auth/me')).json();
   USER = d.authenticated ? d : null;
+  $('#acts').hidden = !USER;
+  $('#kunFamilien').hidden = !!USER;
   $('#loggedIn').hidden = !USER;
   $('#loggedOut').hidden = !!USER;
   $('#authBtn').textContent = USER ? USER.name : 'Log ind';
@@ -1007,11 +1204,30 @@ $('#relLink').onclick = async e => {
   paintWho();
   $('#prefName').value = prefs.name;
   ALLERGENS = await (await fetch('/api/allergens')).json();
+  const gemt = prefs.allergens.length > 0;
   prefs.allergens = prefs.allergens.filter(s => ALLERGENS.some(a => a.slug === s));
+
+  await refreshAuth();
+  // Er der intet gemt valg, og er en af familien logget ind, så hent
+  // deres profil i stedet for at slå alle 17 til. Ellers ville en telefon
+  // med ryddet lagring vise deres bekræftede varer som UBEKRÆFTEDE —
+  // aggregate() kræver FREE på hvert valgt allergen — og lægge hele
+  // bunken tilbage i køen. Ruten kræver login, så der udstilles intet.
+  if(!gemt && USER){
+    try {
+      const profiler = await (await fetch('/api/profiles')).json();
+      const p0 = profiler[0];
+      if(p0){
+        prefs.name = prefs.name || p0.name || '';
+        prefs.allergens = p0.allergens.filter(a => a.active).map(a => a.slug);
+      }
+    } catch { /* falder igennem til alle 17 nedenfor */ }
+  }
+  // En fremmed — eller en profil uden aktive allergener — får alle 17.
   if(!prefs.allergens.length) prefs.allergens = ALLERGENS.map(a => a.slug);
   savePrefs();
   paintPrefChips();
-  refreshAuth();
+  paintWho();
   try {
     const v = await (await fetch('/api/version')).json();
     $('#verTag').textContent = `AllergiScan v${v.version}`;

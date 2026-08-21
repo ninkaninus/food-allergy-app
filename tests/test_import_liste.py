@@ -148,3 +148,67 @@ def test_hint_matcher_paa_navn_og_producent(tmp_path):
         assert any(h["navn"] == "Digestive" for h in hits)
         # ingenting til fælles
         assert _gammel_liste_hint(db, hh.id, "Piskefløde", "Arla") == []
+
+
+def test_genimport_bevarer_stregkode_koblinger(tmp_path):
+    """
+    Var i drift: import_liste droppede tabellen og indsatte rækker uden
+    ean, så hver genimport slettede de stregkoder, et menneske havde
+    knyttet — og ROADMAP'en opfordrer direkte til at genimportere, når
+    arket opdateres. Koblingen er familiens eget arbejde, ikke arkets.
+    """
+    init_db()
+    fil = _ark(tmp_path)
+    import_liste(fil)
+
+    with SessionLocal() as db:
+        row = db.scalar(select(ImportedProduct).where(ImportedProduct.navn == "Digestive"))
+        row.ean = "5700000000031"
+        db.commit()
+
+    import_liste(fil)
+
+    with SessionLocal() as db:
+        row = db.scalar(select(ImportedProduct).where(ImportedProduct.navn == "Digestive"))
+        assert row.ean == "5700000000031", "genimport slettede koblingen"
+        # De øvrige rækker må ikke arve en stregkode, de aldrig fik.
+        andre = db.scalars(
+            select(ImportedProduct).where(ImportedProduct.navn != "Digestive")
+        ).all()
+        assert all(r.ean is None for r in andre)
+
+
+def test_to_raekker_med_samme_noegle_afbryder_foer_droppet(tmp_path):
+    """
+    Nøglen (navn, producent, kategori) er ikke unik. To rækker med samme
+    nøgle ville begge få den sidste stregkode — en stille sammenblanding
+    af to varer. Importen SLETTER tabellen, så det skal fanges før.
+    """
+    import pytest
+
+    init_db()
+    fil = _ark(tmp_path)
+    import_liste(fil)
+
+    with SessionLocal() as db:
+        raekker = db.scalars(
+            select(ImportedProduct).where(ImportedProduct.navn == "Digestive")
+        ).all()
+        # Lav en dublet af nøglen med en ANDEN stregkode.
+        first = raekker[0]
+        db.add(ImportedProduct(
+            household_id=first.household_id, navn=first.navn,
+            producent=first.producent, kategori=first.kategori,
+            ean="5700000000055",
+        ))
+        first.ean = "5700000000062"
+        db.commit()
+        foer = db.query(ImportedProduct).count()
+
+    with pytest.raises(SystemExit) as e:
+        import_liste(fil)
+    assert "deler nøglen" in str(e.value)
+
+    with SessionLocal() as db:
+        assert db.query(ImportedProduct).count() == foer, \
+            "tabellen blev droppet, selvom importen afbrød"
