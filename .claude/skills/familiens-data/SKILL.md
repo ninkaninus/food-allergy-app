@@ -192,10 +192,9 @@ Meld den til vedligeholderen, også når den ser rigtig ud.
     så en fejlet skrivning kan lægge fritekst- og navnefelter i loggen.
     En `@app.exception_handler(Exception)`, der logger typen og ikke
     `str(e)`, ville lukke den.
-  - **De gamle logfiler er der endnu.** `--no-access-log` virker
-    fremadrettet; alt, der allerede står i `docker logs`, ligger uændret.
-    `docker-compose.yml` har ingen `logging:`-sektion, så json-file-driveren
-    kører uden `max-size`/`max-file` — intet er nogensinde roteret væk.
+  - **De gamle logfiler er der endnu**, og det er et bevidst valg — se
+    »Afgjort« nedenfor. `docker-compose.yml` har ingen `logging:`-sektion,
+    så json-file-driveren kører uden `max-size`/`max-file`.
   - `app/cli.py`s import printer nu `MISTET: <ean> hørte til «<navn>»` til
     stdout. Uproblematisk kørt i hånden; ikke fra cron i containeren.
 
@@ -230,6 +229,17 @@ Ingen fødselsdatoer, adresser, telefonnumre, CPR, betalingsdata, ingen
 modellering af værger, ingen deling mellem husstande i praksis, ingen
 analytics, ingen tredjeparts-scripts i frontend (fonte hentes dog fra
 Google Fonts — det er et udgående kald fra brugerens browser).
+
+## Afgjort — tag det ikke op igen
+
+- **De gamle containerlogfiler ryddes ikke.** Afgjort 22. august 2026.
+  `--no-access-log` stopper nye linjer; det, der allerede står i
+  `docker logs`, bliver stående. Begrundelsen er vedligeholderens:
+  det er hans eget barn, på hans egen server, og logfilerne forlader
+  den ikke. Kildens rettelse (flaget i begge Dockerfiles) var det, der
+  betød noget — oprydningen er et driftsstykke uden modtager.
+  Vurderingen ville ændre sig, hvis appen nogensinde deles med en anden
+  husstand, eller hvis logopsamlingen sendes ud af maskinen.
 
 ## Åbne spørgsmål, ingen har afgjort
 
