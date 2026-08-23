@@ -338,25 +338,33 @@ def current_user(
 
 def require_user(user: User | None = Depends(current_user)) -> User:
     """
-    Kræver blot en indlogget bruger, uanset rolle.
+    Kræver blot en indlogget bruger, uanset rolle — også en inviteret
+    bidragyder (rollen `contributor`: bedsteforældre, den faste dagplejer).
 
-    Bruges på de ruter, der viser FAMILIENS egne ting — barnets profil,
-    bekræftelseskøen, driftsdetaljer. Appen er et åbent opslagsværk:
-    enhver må scanne en vare og se, hvad familien har bekræftet. Men
-    hvem barnet er, og hvad det reagerer på, er ikke en del af det
-    opslagsværk.
+    Bruges på det, en bidragyder skal kunne uden at være familie:
+    fotografere en vare, køre OCR på den, og se (men ikke ændre) familiens
+    allergensæt via `/api/profiles`. Familiens EGNE ting — bekræftelseskøen,
+    driftsdetaljer — og alt der skriver en dom kræver `require_curator`.
+
+    Beskeden er bevidst neutral: ruten bag den skifter (foto i dag,
+    allergenopslag i morgen), og en besked om "at gemme billeder" ville
+    være usand på de andre.
     """
     if user is None:
-        raise HTTPException(401, "Log ind for at se det her.")
+        raise HTTPException(401, "Log ind for at fortsætte.")
     return user
 
 
 def require_curator(user: User | None = Depends(current_user)) -> User:
-    """Bruges på alt, der skriver domme."""
+    """Bruges på alt, der skriver domme — og på familiens delte allergensæt."""
     if user is None:
         raise HTTPException(401, "Log ind for at bekræfte varer.")
     if user.role not in ("curator", "admin"):
-        raise HTTPException(403, "Din konto må kun læse.")
+        # IKKE "din konto må kun læse" — en contributor må skrive fotos.
+        # Beskeden skal navngive det, HUN rent faktisk mangler adgang til.
+        raise HTTPException(
+            403, "Kun familien kan bekræfte varer og ændre, hvad appen tjekker for."
+        )
     return user
 
 

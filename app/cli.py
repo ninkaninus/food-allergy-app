@@ -22,10 +22,18 @@ from sqlalchemy import create_engine, func, select, text
 from . import ingredients as ix
 from .auth import hash_password, validate_new_password
 from .db import DATABASE_URL, SessionLocal, default_household, init_db
-from .models import Base, ImportedProduct, Product, User
+from .models import Base, GYLDIGE_ROLLER, ImportedProduct, Product, User
 
 
 def adduser(email: str, name: str, role: str = "admin") -> None:
+    # Samme tjekliste som API'ets POST /api/auth/users (app/models.py) —
+    # ellers kan CLI'en oprette en rolle, ingen vagt i appen kender noget
+    # til, og kontoen ender uden nogen af de tre roller giver adgang til.
+    if role not in GYLDIGE_ROLLER:
+        sys.exit(
+            f"Ukendt rolle: {role!r}. Gyldige roller: "
+            f"{', '.join(sorted(GYLDIGE_ROLLER))}."
+        )
     pw = getpass.getpass("Adgangskode (mindst 14 tegn): ")
     if pw != getpass.getpass("Gentag: "):
         sys.exit("De to kodeord er ikke ens.")

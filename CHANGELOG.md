@@ -3,6 +3,69 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.20.0 — 23. august 2026
+
+**I kan nu invitere en person til at hjælpe med billeder**
+
+Bedsteforælderen eller den faste dagplejer kan få sin egen konto, uden
+at kunne bekræfte varer. Hun logger ind, fotograferer forsiden eller
+deklarationen, og får med det samme besked om, at billedet er sendt
+ind og gemt hos jer. Kun familien kan stadig godkende en vare — det
+ændrer sig ikke, uanset hvem der har taget billedet, og hun kan hverken
+se et automatisk tjek af billedet eller trykke sig igennem en
+bekræftelse. En gæstedagplejer skal ikke have en konto — hun kan
+stadig scanne og slå varer op uden at logge ind, ligesom alle andre.
+
+En sådan konto kan ikke se jeres kø af varer, der venter på at blive
+tjekket, eller driftsoplysninger om serveren. Det er stadig kun jeres
+eget. Den kan derimod se, hvilke allergener I tjekker for — se næste
+punkt om hvorfor det er meningen.
+
+Åbner I »Bekræft mod emballagen« på en vare med et deklarationsfoto,
+står der nu, hvem der har taget det og hvornår — fx »Foto taget af
+Mormor, 22. august« — med et link der åbner billedet i fuld størrelse,
+så I kan bekræfte varen uden at skulle scrolle op til miniaturen.
+
+**En administrator kan nu oprette de nye konti fra telefonen**
+
+Under Indstillinger er der et afsnit »Brugere«, hvis I er logget ind
+som administrator. Der kan I se, hvem der allerede er oprettet, og
+oprette en ny med mail, navn og en af tre roller, hver med sin egen
+forklaring, plus en adgangskode I selv sætter og giver videre — der er
+intet invitationslink at sende. Koden bliver stående i feltet efter
+oprettelsen, så I kan læse den op med det samme. Kommandoen på
+serveren virker stadig, hvis I foretrækker den.
+
+**Jeres allergenvalg gælder nu på alle telefoner, der er logget ind**
+
+Før valgte hver telefon sit eget sæt af de fire allergener under
+Indstillinger — også en hjælpers. Glemte hun at slå de rigtige til,
+tjekkede appen for det forkerte, uden at nogen opdagede det. Det sker
+ikke længere: er I logget ind, kommer sættet fra serveren og gælder alle
+telefoner med det samme, en hjælper kan se det, men ikke ændre det, og
+kun familien kan rette det. Ikke logget ind er intet ændret — telefonen
+husker stadig sit eget valg. Overskriften øverst viser nu selve listen
+i stedet for et navn, så en hjælper kan tjekke, at det er de rigtige
+fire allergener, hun har fået at vide.
+
+**Barnets navn ligger ikke længere på serveren**
+
+Det har aldrig været brugt til andet end at vise et navn i toppen af
+skærmen — og det kom altid fra telefonens egen lagring, aldrig fra
+serveren. Nu gemmer serveren det slet ikke, og et navn, der eventuelt
+lå der fra før, er ryddet automatisk.
+
+**Historikken over jeres scanninger er slettet**
+
+Appen har siden starten lagt en log over hvert opslag — hvilken
+stregkode, hvornår, for hvem — uden at vise jer den noget sted. Den
+kunne aldrig blive en pålidelig fødevaredagbog, for I scanner ikke alt,
+barnet spiser: en ufuldstændig log er værre end ingen, fordi man kan slå
+op i den efter en reaktion, se ingenting, og fejlagtigt tro at synderen
+ikke var der. Den var også den mest følsomme oplysning, appen gemte.
+Den er derfor slettet, ikke bare skjult — jeres domme og bekræftelser
+(hvem, hvornår, hvad) er upåvirkede.
+
 ## 0.19.0 — 21. august 2026
 
 Ingen store nye funktioner. Bekræftelsesskærmen har fået en tredje

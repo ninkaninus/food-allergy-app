@@ -27,7 +27,8 @@ from sqlalchemy import select
 from app import db as dbmod
 from app.db import SessionLocal, init_db
 from app.main import app
-from app.models import Allergen, ProfileAllergen
+from app.db import default_household
+from app.models import Allergen, Profile, ProfileAllergen
 
 # Slugs fra den rigtige YAML, sat fast før nogen test lægger noget oveni.
 BASE_SLUGS = set(dbmod.RULES.allergens)
@@ -130,3 +131,27 @@ def test_udvidelse_roerer_ikke_eksisterende_kryds(monkeypatch):
         for s in stadig_til:
             assert _profil_raekke(db, s).active is True, f"{s} blev slukket af et deploy"
         assert _profil_raekke(db, "endnu_et_allergen").active is False
+
+
+
+def test_profilnavn_ryddes_af_init_db():
+    """
+    Barnets navn skal ikke ligge på serveren (se Profile.name i
+    app/models.py) — headerens "Tjekker for …" kommer udelukkende fra
+    telefonens egen localStorage. Findes der allerede en værdi fra før
+    denne ændring, skal init_db() rydde den ved næste opstart, uden at
+    nogen behøver køre en kommando selv.
+    """
+    init_db()
+    with SessionLocal() as db:
+        prof = db.scalar(select(Profile).where(
+            Profile.household_id == default_household(db).id))
+        prof.name = "Et navn, der ikke må blive stående"
+        db.commit()
+
+    init_db()   # oprydningen kører ved hver opstart, ikke kun én gang
+
+    with SessionLocal() as db:
+        prof = db.scalar(select(Profile).where(
+            Profile.household_id == default_household(db).id))
+        assert prof.name == "", "et gammelt profilnavn overlevede en genstart"

@@ -213,21 +213,30 @@ footer a{color:var(--muted)}
       </div>
       <div class="prod" id="prod"></div>
       <div class="fotos" id="fotoRk" hidden></div>
+      <!-- Kvittering til en bidragyder, der lige har sendt et billede ind
+           — hun ser aldrig bekræftelsespanelet, se refreshAuth() og
+           #ocrFile.onchange. Bruges også til en fejlbesked, hvis
+           uploaden mislykkes. -->
+      <p class="hint" id="fotoKvittering" style="padding:0 var(--pad) 16px" hidden></p>
       <ul class="rows" id="rows"></ul>
       <div class="decl">
         <h3>Deklaration, som motoren læste den</h3>
         <div class="body" id="decl"></div>
       </div>
+      <!-- Forklaringen står FØR knapperne, ikke under dem — under folden
+           på en lille skærm er den lige så usynlig som slet ikke skrevet. -->
+      <p class="hint" id="kunFamilien" style="padding:0 var(--pad) 10px" hidden>
+        Kun familien bag appen kan bekræfte varer. Log ind for at sende billeder ind.</p>
+      <!-- En inviteret bidragyder må fotografere og køre OCR, men ikke
+           bekræfte — #confirmBtn skjules for hende alene, se refreshAuth(). -->
+      <p class="hint" id="kunBidrag" style="padding:0 var(--pad) 10px" hidden>
+        Du kan sende billeder ind. Familien bekræfter selv varerne mod emballagen.</p>
       <div class="acts" id="acts">
         <button class="btn ghost" id="frontBtn">Fotografér forsiden</button>
         <button class="btn ghost" id="ocrBtn">Fotografér deklaration</button>
         <button class="btn ghost" id="ocrPickBtn">Brug gemt billede</button>
         <button class="btn" id="confirmBtn">Bekræft mod emballagen</button>
       </div>
-      <!-- Appen er åben for alle, men kun familien kan bekræfte. Knapperne
-           ovenfor peger mod låste døre for alle andre — så vis dem ikke. -->
-      <p class="hint" id="kunFamilien" style="padding:0 var(--pad) 16px" hidden>
-        Kun familien bag appen kan bekræfte varer og gemme billeder.</p>
     </section>
 
     <!-- To inputs, samme arbejdsgang: capture tvinger telefonens kamera
@@ -241,8 +250,11 @@ footer a{color:var(--muted)}
       <h3>Bekræft mod emballagen</h3>
       <!-- Hvilken vare. Uden den kan man gøre en vare grøn uden at få at
            vide hvilken — og kortet er tit scrollet ud af syne. -->
+      <!-- Vare og — hvis der er et deklarationsfoto — hvem der tog det
+           og hvornår, i ét afsnit adskilt af <br>. Sat af openConfirm()
+           fra LAST.fotos.deklaration; "se billedet" åbner aabnLup(). -->
       <p class="hint" id="confirmVare"></p>
-      <p class="hint" id="ocrStatus"></p>
+      <p class="hint" id="ocrStatus" hidden></p>
       <textarea id="declEdit" placeholder="Ingredienser: …" aria-label="Ingrediensliste"></textarea>
       <div class="acts" id="tekstVaerktoej" style="padding:8px 0 0" hidden>
         <button class="btn ghost" id="klipHer" type="button">Klip fra markøren og ned</button>
@@ -321,11 +333,6 @@ footer a{color:var(--muted)}
   <!-- ==================== INDSTILLINGER ==================== -->
   <section id="view-prefs" hidden>
     <div class="sec">
-      <h3>Hvem tjekker vi for?</h3>
-      <input id="prefName" placeholder="Navn" aria-label="Navn">
-      <p class="hint">Gemmes kun i denne browser. Ingen konto, intet sendt nogen steder.</p>
-    </div>
-    <div class="sec">
       <h3>Hvad kan hun ikke tåle?</h3>
       <ul class="chips" id="prefChips"></ul>
       <p class="hint" id="prefHint"></p>
@@ -348,6 +355,66 @@ footer a{color:var(--muted)}
           <button class="btn ghost" id="logoutGo">Log ud</button>
         </div>
       </div>
+    </section>
+
+    <!-- Kun for admin — invitationen er selve oprettelsen, der er intet
+         link og intet token. Se refreshAuth(). -->
+    <section class="sec" id="usersPanel" hidden>
+      <h3>Brugere</h3>
+      <ul class="rows" id="usersList"></ul>
+
+      <details style="margin-top:14px">
+        <summary>Opret en bruger</summary>
+        <div style="padding-top:14px">
+          <label for="newUserEmail" style="display:block;font-size:13px;font-weight:700;margin-bottom:4px">Mail</label>
+          <input id="newUserEmail" type="email" autocomplete="off"
+                 aria-label="Mail på den nye bruger" style="margin-bottom:12px">
+
+          <label for="newUserName" style="display:block;font-size:13px;font-weight:700;margin-bottom:4px">Navn</label>
+          <input id="newUserName" autocomplete="off"
+                 aria-label="Navn på den nye bruger" style="margin-bottom:12px">
+
+          <label for="newUserPw" style="display:block;font-size:13px;font-weight:700;margin-bottom:4px">Adgangskode (mindst 14 tegn)</label>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <input id="newUserPw" type="password" autocomplete="new-password"
+                   aria-label="Adgangskode til den nye bruger" style="flex:1 1 auto;min-width:0">
+            <button class="btn ghost" type="button" id="newUserPwVis" style="flex:none">Vis</button>
+            <button class="btn ghost" type="button" id="newUserPwRyd" style="flex:none">Ryd</button>
+          </div>
+
+          <fieldset style="border:1.5px solid var(--rule);padding:4px 14px 14px;margin:0 0 12px">
+            <legend style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+              color:var(--muted);font-weight:700;padding:0 4px">Hvad må hun?</legend>
+            <label style="display:block;padding:10px 0;cursor:pointer">
+              <input type="radio" name="newUserRolle" value="contributor" checked>
+              <b>Kan sende billeder ind</b>
+              <span class="hint" style="display:block;margin:2px 0 0 22px">Fotograferer varer, så
+                I kan bekræfte dem. Kan ikke bekræfte selv. Hun kan se, hvilke allergener
+                I tjekker for — men ikke ændre dem.</span>
+            </label>
+            <label style="display:block;padding:10px 0;cursor:pointer;border-top:1px solid var(--rule)">
+              <input type="radio" name="newUserRolle" value="curator">
+              <b>Kan bekræfte varer</b>
+              <span class="hint" style="display:block;margin:2px 0 0 22px">Må gøre en vare grøn
+                efter at have læst den fysiske pakke.</span>
+            </label>
+            <label style="display:block;padding:10px 0;cursor:pointer;border-top:1px solid var(--rule)">
+              <input type="radio" name="newUserRolle" value="admin">
+              <b>Kan bekræfte varer og oprette brugere</b>
+              <span class="hint" style="display:block;margin:2px 0 0 22px">Det samme, plus
+                adgang til denne liste.</span>
+            </label>
+          </fieldset>
+
+          <p class="err" id="newUserErr" hidden></p>
+          <p class="hint" id="newUserOk" hidden></p>
+          <div class="acts" style="padding:0">
+            <button class="btn" id="newUserGo">Opret bruger</button>
+          </div>
+          <p class="hint">Du sætter adgangskoden og giver den videre selv — der er intet
+            invitationslink. Den inviterede skifter den ikke selv endnu.</p>
+        </div>
+      </details>
     </section>
   </section>
 
@@ -386,6 +453,19 @@ footer a{color:var(--muted)}
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
+const MAANEDER = ['januar','februar','marts','april','maj','juni','juli',
+                   'august','september','oktober','november','december'];
+// Til et enkelt tidspunkt fra serveren (naiv lokal tid, ingen tidszone) —
+// "22. august" til fotos, "22. august 2026" hvor året ikke er indlysende.
+function danskDato(iso, medAar){
+  const d = new Date(iso);
+  // Bruges i innerHTML tre steder — fald aldrig tilbage til rå,
+  // uescapet input. iso kommer fra serveren, ikke fra brugeren, men
+  // "kommer aldrig til at indeholde markup" er ikke et løfte, koden holder.
+  if(isNaN(d)) return esc(iso);
+  return `${d.getDate()}. ${MAANEDER[d.getMonth()]}` + (medAar ? ` ${d.getFullYear()}` : '');
+}
+
 /* ---------- lokale valg. Ingen konto, ingen server. ---------- */
 const KEY = 'allergiscan.prefs.v1';
 // Default er TOM, ikke et bestemt sæt. Filen serveres af GET / til
@@ -394,13 +474,38 @@ const KEY = 'allergiscan.prefs.v1';
 // også en kommentar, der nævner dem. Tom liste betyder "alle 17", både
 // her og på serveren.
 const prefs = Object.assign(
-  {name:'', allergens:[]},
+  {allergens:[]},
   JSON.parse(localStorage.getItem(KEY) || '{}')
 );
 const savePrefs = () => { localStorage.setItem(KEY, JSON.stringify(prefs)); paintWho(); };
-const paintWho = () => { $('#who').textContent = prefs.name || 'alle allergener'; };
 
-let ALLERGENS = [], USER = null, LAST = null;
+let ALLERGENS = [], USER = null, LAST = null, KAN_BEKRAEFTE = false,
+    // Familiens DELTE allergensæt, hentet fra serveren når nogen er
+    // logget ind — se refreshAuth(). SERVER_ALLERGENS er null, når ingen
+    // er logget ind, eller mens vi endnu ikke har spurgt serveren.
+    SERVER_ALLERGENS = null, PROFILE_ID = null;
+
+// Logget ind vinder serverens sæt altid over browserens eget valg — det
+// er hele pointen med B: en bidragyder kan ikke glemme at slå de rigtige
+// allergener til, for hun vælger dem ikke længere selv. Ikke logget ind:
+// uændret, browserens eget valg, eller alle 17 hvis intet er valgt (en
+// frisk telefon, eller en profil hvor alt er slået fra).
+function effektivAllergener(){
+  const sæt = USER ? SERVER_ALLERGENS : prefs.allergens;
+  return (sæt && sæt.length) ? sæt : ALLERGENS.map(a => a.slug);
+}
+
+// Headeren viste tidligere et navn — det gjorde den fra localStorage
+// alene og har ALDRIG læst noget fra serveren (se app/db.py). Nu viser
+// den i stedet LISTEN, det tjekkes for: en hjælper kan efterprøve den
+// mod det, hun har fået at vide, og "alle allergener" er ærligt om, at
+// intet er valgt fra.
+const paintWho = () => {
+  const sæt = effektivAllergener();
+  $('#who').textContent = (ALLERGENS.length && sæt.length >= ALLERGENS.length)
+    ? 'alle allergener'
+    : sæt.map(s => ALLERGENS.find(a => a.slug === s)?.name || s).join(', ') || 'alle allergener';
+};
 
 const COPY = {
   unsafe:    ['Fundet','Ikke sikker','Mindst ét af de allergener, I holder øje med, står i deklarationen.'],
@@ -434,7 +539,10 @@ let ventendeKobling = null;
 
 function koblingLinje(gl, ean){
   const knyttet = gl.ean && gl.ean === ean;
-  const knap = !USER ? ''
+  // KAN_BEKRAEFTE, ikke USER: POST /api/liste/{id}/stregkode kræver
+  // require_curator, og en bidragyder må ikke se en knap, der alligevel
+  // ville give 403.
+  const knap = !KAN_BEKRAEFTE ? ''
     : knyttet
       ? `<button class="link" data-kobl="${gl.id}" data-fjern="1">fjern koblingen</button>`
       : `<button class="link" data-kobl="${gl.id}">det er denne vare</button>`;
@@ -458,6 +566,10 @@ function visSlab(r, forklaring){
   $('#rows').innerHTML = '';
   $('#decl').textContent = 'Ingen ingrediensliste registreret.';
   $('#fotoRk').hidden = true;
+  // Hørte til den FORRIGE vare — ellers står Mormors »billedet er sendt
+  // ind« stadig under NÆSTE vares kort, og familien tror det er dens.
+  $('#fotoKvittering').hidden = true;
+  $('#fotoKvittering').textContent = '';
   $('#confirmPanel').hidden = true;
   $('#verdict').hidden = false;
 }
@@ -477,9 +589,8 @@ async function lookup(code){
   LAST = null;
   $('#scanHint').textContent = '';
   visSlab('henter');
-  // Tom liste = spørg ikke om noget bestemt; serveren vurderer alle 17.
-  const q = new URLSearchParams(
-    prefs.allergens.length ? {allergens: prefs.allergens.join(',')} : {});
+  // effektivAllergener() er altid ikke-tom (falder tilbage til alle 17).
+  const q = new URLSearchParams({allergens: effektivAllergener().join(',')});
   let r;
   try {
     r = await fetch(`/api/scan/${ean}?${q}`);
@@ -500,6 +611,8 @@ async function lookup(code){
   if(mit !== opslagNr) return;
   LAST = svar;
   render(LAST);
+  // `gemt` betyder KUN "lagt i bekræftelseskøen, hvis der var grund til
+  // det" — der er ingen scan-historik mere (fjernet i 0.20.0).
   if(LAST && LAST.gemt === false)
     $('#scanHint').textContent =
       'Ikke logget ind — denne scanning gemmes ikke i jeres kø.';
@@ -523,8 +636,10 @@ function highlight(text, rows){
 }
 
 // Hvad "Sikker" faktisk betyder — sagt med navns nævnelse. En fremmed,
-// hvis barn ikke tåler nødder, må ikke læse familiens "bekræftet fri for
-// mælk, æg, jordbær og banan" som "sikker at spise".
+// hvis barn ikke tåler noget helt andet, må ikke læse en anden families
+// "bekræftet fri for gluten, soja, sesam og skaldyr" som "sikker at
+// spise". Eksemplet her er bevidst IKKE familiens eget sæt — denne fil
+// serveres til enhver, se test_forsiden_indeholder_ikke_barnets_allergener.
 function safeForklaring(d){
   const navne = (d.allergens || []).map(a => a.name);
   if(!navne.length) return COPY.safe[2];
@@ -674,13 +789,15 @@ function visFotos(d){
   const gl = $('#fotoRk');
   if(!ordre.length){ gl.innerHTML = ''; gl.hidden = true; return; }
   gl.hidden = false;
+  // Afsenderen står i selve etiketten, ikke i title= — title virker ikke
+  // ved tryk, og telefonen er den eneste enhed, det her bliver brugt på.
   gl.innerHTML = ordre.map(k => `
     <button class="foto" data-foto="${k}" data-url="${esc(f[k].url)}"
-      title="Taget ${esc(f[k].taget_at.replace('T',' '))}${f[k].taget_af ? ' af '+esc(f[k].taget_af) : ''}">
+      title="Taget ${danskDato(f[k].taget_at, true)}">
       <img src="${esc(f[k].mini_url || f[k].url)}" alt="${navne[k]}" loading="lazy">
-      <span class="lab">${navne[k]}</span></button>`).join('');
+      <span class="lab">${navne[k]}${f[k].taget_af ? ' · ' + esc(f[k].taget_af) : ''}</span></button>`).join('');
   gl.querySelectorAll('.foto').forEach(b => b.onclick = () => aabnLup(
-    b.dataset.url, `${navne[b.dataset.foto]} · ${f[b.dataset.foto].taget_at.replace('T',' ')}`));
+    b.dataset.url, `${navne[b.dataset.foto]} · ${danskDato(f[b.dataset.foto].taget_at, true)}`));
 }
 
 function aabnLup(url, tekst){
@@ -713,14 +830,17 @@ $('#lupZoom').onclick = () => {
 };
 
 async function gemFoto(fil, slags){
-  if(!LAST?.ean) return null;
+  // Statuskoden gives videre, i stedet for at oversætte alt-der-ikke-er-
+  // 200 til "dårligt signal" — en udløbet session (401) er ikke det
+  // samme fejl, og skal ikke bede en dagplejer om at prøve igen i Netto.
+  if(!LAST?.ean) return {ok:false, status:0};
   const fd = new FormData(); fd.append('image', fil);
   const r = await fetch(`/api/products/${LAST.ean}/foto?slags=${slags}`, {method:'POST', body:fd});
-  if(!r.ok) return null;
+  if(!r.ok) return {ok:false, status:r.status};
   const d = await r.json();
   LAST.fotos = d.fotos;
   visFotos(LAST);
-  return d;
+  return {ok:true, status:200, data:d};
 }
 
 $('#frontBtn').onclick = () => {
@@ -733,7 +853,10 @@ $('#frontFile').onchange = async e => {
   e.target.value = '';
   if(!f) return;
   $('#scanHint').textContent = 'Gemmer billedet…';
-  $('#scanHint').textContent = await gemFoto(f, 'front') ? '' : 'Billedet kunne ikke gemmes.';
+  const svar = await gemFoto(f, 'front');
+  $('#scanHint').textContent = svar.ok ? ''
+    : svar.status === 401 ? 'Du er blevet logget ud. Log ind igen under Indstillinger.'
+    : 'Billedet kunne ikke gemmes.';
 };
 
 /* ---------- OCR ---------- */
@@ -746,12 +869,30 @@ $('#ocrPickBtn').onclick = () => { if(ocrGuard()) $('#ocrPick').click(); };
 
 $('#ocrFile').onchange = $('#ocrPick').onchange = async e => {
   const f = e.target.files?.[0];
+  e.target.value = '';
   if(!f) return;
+
+  // En bidragyder kan intet gøre med et OCR-resultat — hun kan ikke
+  // bekræfte, og kørslen kræver ikke curator-rollen, men at vise hende
+  // resultatet ville åbne netop det bekræftelsesritual, hun ikke må
+  // gennemføre. Hun uploader kun, og får sit eget billede som kvittering.
+  if(!KAN_BEKRAEFTE){
+    $('#fotoKvittering').hidden = false;
+    $('#fotoKvittering').textContent = 'Sender billedet…';
+    const svar = await gemFoto(f, 'deklaration');
+    $('#fotoKvittering').textContent = svar.ok
+      ? 'Billedet er sendt ind. Familien kan nu bekræfte varen ud fra det.'
+      : svar.status === 401
+        ? 'Du er blevet logget ud. Log ind igen under Indstillinger.'
+        : 'Billedet blev ikke sendt. Prøv igen — eller prøv, når du har bedre signal.';
+    return;
+  }
+
   openConfirm();
+  $('#ocrStatus').hidden = false;
   $('#ocrStatus').textContent = 'Læser billedet…';
   const fd = new FormData(); fd.append('image', f);
   const r = await fetch('/api/ocr', {method:'POST', body:fd});
-  e.target.value = '';
   // Samme billede gemmes som deklarationsfoto — så kan I læse etiketten
   // igen derhjemme uden at fotografere den to gange.
   gemFoto(f, 'deklaration');
@@ -787,7 +928,7 @@ $('#ocrFile').onchange = $('#ocrPick').onchange = async e => {
   // og en forudfyldt "fri" gør motorens ikke-viden til et menneskes
   // underskrift.
   const st = {};
-  for(const a of d.allergens || []) if(prefs.allergens.includes(a.slug))
+  for(const a of d.allergens || []) if(effektivAllergener().includes(a.slug))
     st[a.slug] = a.state === 'contains' ? 'contains' : null;
   if(Object.keys(st).length){
     $('#confirmChips').dataset.state = JSON.stringify(st);
@@ -813,13 +954,38 @@ $('#visHele').onclick = () => {
 
 /* ---------- bekræftelse ---------- */
 function openConfirm(){
-  if(!USER){ $('#scanHint').textContent = 'Log ind under Indstillinger for at bekræfte varer.'; return; }
+  // KAN_BEKRAEFTE, ikke USER: en bidragyder ER logget ind, men
+  // /api/products/{ean}/confirm kræver require_curator. Uden denne vagt
+  // kunne hun gennemføre hele bekræftelsesritualet — trykke alle chips
+  // grønne, trykke »Gem dom« — og først opdage bagefter, via en
+  // misvisende "session udløbet"-besked, at intet blev gemt.
+  if(!KAN_BEKRAEFTE){
+    $('#scanHint').textContent = USER
+      ? 'Din konto kan sende billeder ind, men ikke bekræfte varer.'
+      : 'Log ind under Indstillinger for at bekræfte varer.';
+    return;
+  }
   $('#confirmPanel').hidden = false;
   $('#confirmErr').hidden = true;
   $('#declEdit').value = LAST?.product?.ingredients_text || '';
+  $('#ocrStatus').hidden = true;
   $('#ocrStatus').textContent = '';
-  $('#confirmVare').textContent =
-    (LAST?.product?.name || 'Ukendt vare') + ' — ' + (LAST?.ean || '');
+
+  // Vare og — hvis der findes et deklarationsfoto — hvem der tog det,
+  // hvornår, og et link der åbner billedet i fuld opløsning. I
+  // bekræfter ud fra billedet og skal kunne se det uden at scrolle op
+  // til miniaturen. taget_af sendes kun med til indloggede, se
+  // _foto_svar(); uden navn (foto uploadet før 0.20.0) nævnes kun datoen.
+  const dekl = LAST?.fotos?.deklaration;
+  const vareLinje = esc(LAST?.product?.name || 'Ukendt vare') + ' — ' + esc(LAST?.ean || '');
+  const fotoLinje = dekl
+    ? (dekl.taget_af ? `Foto taget af <b>${esc(dekl.taget_af)}</b>, ${danskDato(dekl.taget_at)}`
+                     : `Foto fra ${danskDato(dekl.taget_at)}`)
+      + ` · <button type="button" class="link" id="seFotoLink">se billedet</button>`
+    : '';
+  $('#confirmVare').innerHTML = vareLinje + (fotoLinje ? `<br>${fotoLinje}` : '');
+  if(dekl) $('#seFotoLink').onclick = () =>
+    aabnLup(dekl.url, `Deklaration · ${danskDato(dekl.taget_at, true)}`);
   // Forudfyld kun, når motoren faktisk har haft en ingrediensliste at
   // læse. Uden liste (no_text) er "fri" ikke en forudfyldning, det er et
   // gæt — og to tryk ville gøre varen grøn på grundlag af ingenting.
@@ -945,9 +1111,19 @@ $('#saveConfirm').onclick = async () => {
   const body = {verdicts, ingredients_text: tekst};
   const r = await fetch(`/api/products/${ean}/confirm`, {
     method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-  if(r.status === 401 || r.status === 403){
+  // 401 (ingen session) og 403 (logget ind, men uden lov) er ikke det
+  // samme fejl — en bidragyder, hvis "Gem dom" af en eller anden vej
+  // blev trykket, må ikke få at vide at sin session er udløbet.
+  if(r.status === 401){
     $('#confirmErr').hidden = false;
     $('#confirmErr').textContent = 'Din session er udløbet. Log ind igen.';
+    await refreshAuth();
+    return;
+  }
+  if(r.status === 403){
+    $('#confirmErr').hidden = false;
+    $('#confirmErr').textContent =
+      'Din konto kan sende billeder ind, men ikke bekræfte varer. Ingenting blev gemt.';
     await refreshAuth();
     return;
   }
@@ -981,9 +1157,8 @@ function chip(tekst, valgt, antal, deaktiveret){
 async function soeg(){
   const p = new URLSearchParams({
     q: soegState.q, status: soegState.status,
-    // Tom liste udelades, som i lookup() — ellers svarer serveren 400,
-    // og fanen står tavst tilbage med gamle resultater.
-    ...(prefs.allergens.length ? {allergens: prefs.allergens.join(',')} : {}),
+    // effektivAllergener() er altid ikke-tom, ligesom i lookup().
+    allergens: effektivAllergener().join(','),
   });
   if(soegState.fri.size) p.set('fri_for', [...soegState.fri].join(','));
   if(soegState.kategori) p.set('kategori', soegState.kategori);
@@ -1040,7 +1215,8 @@ async function soeg(){
           v.scannet && v.paa_listen ? 'også på arket' : null,
         ].filter(Boolean).map(t => `<span class="badge">${esc(t)}</span>`).join('')}</span></span>
       ${v.ean ? `<button class="link" data-ean="${esc(v.ean)}">åbn</button>`
-        : (USER && v.liste_id ? `<button class="link" data-kobl-id="${v.liste_id}" data-navn="${esc(v.navn)}">knyt stregkode</button>` : '')}</li>`;
+        // KAN_BEKRAEFTE, ikke USER — se koblingLinje() for hvorfor.
+        : (KAN_BEKRAEFTE && v.liste_id ? `<button class="link" data-kobl-id="${v.liste_id}" data-navn="${esc(v.navn)}">knyt stregkode</button>` : '')}</li>`;
 
   $('#sHits').innerHTML = d.grupper.length
     ? d.grupper.map(g => `<li class="gruppe">
@@ -1116,39 +1292,210 @@ $('#sugGo').onclick = async () => {
 };
 
 /* ---------- indstillinger ---------- */
-$('#prefName').oninput = e => { prefs.name = e.target.value; savePrefs(); };
 
+// Tre tilstande: en bidragyder LÆSER familiens sæt (skrivebeskyttet — hun
+// må ikke kunne vælge forkert), curator/admin SKRIVER det til serveren
+// (POST /api/profiles/{id}/allergens, gælder alle indloggede telefoner
+// med det samme), og en anonym browser beholder sit eget lokale valg.
 function paintPrefChips(){
+  const sæt = effektivAllergener();
+  const skrivebeskyttet = USER?.role === 'contributor';
   $('#prefChips').innerHTML = ALLERGENS.map(a => `
-    <li><button class="chip" data-slug="${a.slug}" aria-pressed="${prefs.allergens.includes(a.slug)}">
+    <li><button class="chip" data-slug="${a.slug}" aria-pressed="${sæt.includes(a.slug)}"
+      ${skrivebeskyttet ? 'disabled' : ''}>
       ${esc(a.name)} <small>${a.eu14 ? 'EU-14' : 'fritekst'}</small></button></li>`).join('');
-  $('#prefChips').querySelectorAll('.chip').forEach(b => b.onclick = () => {
-    const s = b.dataset.slug;
-    prefs.allergens = prefs.allergens.includes(s)
-      ? prefs.allergens.filter(x => x !== s) : [...prefs.allergens, s];
-    savePrefs(); paintPrefChips();
-  });
-  const fritekst = ALLERGENS.filter(a => prefs.allergens.includes(a.slug) && !a.eu14);
-  $('#prefHint').innerHTML = 'Gemmes kun i denne browser. '
-    + (fritekst.length
-      ? `<b>${fritekst.map(a => esc(a.name)).join(' og ')}</b> er ikke på EU's liste over 14
-         mærkningspligtige allergener og findes derfor kun ved at læse ingredienslisten —
-         aldrig via strukturerede data.`
-      : '');
+
+  if(!skrivebeskyttet){
+    $('#prefChips').querySelectorAll('.chip').forEach(b => b.onclick = async () => {
+      const s = b.dataset.slug;
+      const til = !effektivAllergener().includes(s);
+      if(USER){
+        if(!PROFILE_ID) return;
+        b.disabled = true;
+        const r = await fetch(`/api/profiles/${PROFILE_ID}/allergens`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({slug: s, active: til})});
+        b.disabled = false;
+        if(!r.ok){
+          $('#prefHint').textContent = 'Kunne ikke gemme — prøv igen.';
+          return;
+        }
+        SERVER_ALLERGENS = til
+          ? [...(SERVER_ALLERGENS || []), s]
+          : (SERVER_ALLERGENS || []).filter(x => x !== s);
+      } else {
+        prefs.allergens = til ? [...prefs.allergens, s] : prefs.allergens.filter(x => x !== s);
+        savePrefs();
+      }
+      paintPrefChips();
+      paintWho();
+    });
+  }
+
+  const fritekst = ALLERGENS.filter(a => sæt.includes(a.slug) && !a.eu14);
+  const fritekstTekst = fritekst.length
+    ? `<b>${fritekst.map(a => esc(a.name)).join(' og ')}</b> er ikke på EU's liste over 14
+       mærkningspligtige allergener og findes derfor kun ved at læse ingredienslisten —
+       aldrig via strukturerede data.`
+    : '';
+  // Et nyt allergen i regelsættet lægges til SLUKKET på alle indloggede
+  // telefoner (init_db() sætter active=False, med vilje — se app/db.py).
+  // Uden en synlig linje her opdager ingen, at rækkevidden af det valg
+  // voksede den dag, appen fik en attende regel.
+  const fravalgt = ALLERGENS.filter(a => !sæt.includes(a.slug));
+  const fravalgtTekst = fravalgt.length
+    ? ` I tjekker IKKE for: <b>${fravalgt.map(a => esc(a.name)).join(', ')}</b>.`
+    : '';
+  $('#prefHint').innerHTML = (skrivebeskyttet
+    ? 'Sat af familien. De gælder på alle telefoner, der er logget ind. ' + fritekstTekst
+    : USER
+      ? 'Gælder på alle telefoner, der er logget ind. ' + fritekstTekst
+      : 'Gemmes kun i denne browser. ' + fritekstTekst) + fravalgtTekst;
 }
 
 /* ---------- auth ---------- */
 async function refreshAuth(){
   const d = await (await fetch('/api/auth/me')).json();
   USER = d.authenticated ? d : null;
+  // En inviteret bidragyder er logget ind (USER er sat), men må ikke
+  // bekræfte. KAN_BEKRAEFTE er det ene flag, alt andet i scriptet skal
+  // spørge — se koblingLinje(), openConfirm(), soeg() og opstarten.
+  const erBidragyder = USER?.role === 'contributor';
+  KAN_BEKRAEFTE = !!USER && !erBidragyder;
   $('#acts').hidden = !USER;
+  $('#confirmBtn').hidden = erBidragyder;
+  // Den fyldte knap er den, der er ens opgave. En bidragyder har kun
+  // fotografering — ellers ville tre lige tunge ghost-knapper stå
+  // tilbage, og hun skulle gætte hvilken der var hendes.
+  $('#ocrBtn').classList.toggle('ghost', !erBidragyder);
   $('#kunFamilien').hidden = !!USER;
+  $('#kunBidrag').hidden = !erBidragyder;
   $('#loggedIn').hidden = !USER;
   $('#loggedOut').hidden = !!USER;
   $('#authBtn').textContent = USER ? USER.name : 'Log ind';
-  if(USER) $('#loginWho').textContent =
-    `Logget ind som ${USER.name} (${USER.role}${USER.source === 'proxy' ? ', via proxy' : ''}).`;
+  // Rollenavnet hører ikke til i grænsefladen — det siger intet, en
+  // forælder i Netto skal handle på.
+  if(USER) $('#loginWho').textContent = `Logget ind som ${USER.name}.`;
+
+  // Familiens DELTE allergensæt — se effektivAllergener(). Hentes hver
+  // gang nogen logger ind, og ryddes ved logout/session-udløb, så en
+  // delt telefon ikke beholder familiens sæt, efter den logger ud.
+  if(USER){
+    try {
+      const profiler = await (await fetch('/api/profiles')).json();
+      const p0 = profiler[0];
+      PROFILE_ID = p0?.id ?? null;
+      SERVER_ALLERGENS = p0 ? p0.allergens.filter(a => a.active).map(a => a.slug) : [];
+    } catch {
+      PROFILE_ID = null;
+      SERVER_ALLERGENS = null;   // falder tilbage til lokalt valg, se effektivAllergener()
+    }
+  } else {
+    PROFILE_ID = null;
+    SERVER_ALLERGENS = null;
+  }
+  paintWho();
+  paintPrefChips();
+
+  // Afsnittet findes kun for admin — knappen kalder aldrig engang
+  // endepunktet, så der er intet at lække, selv hvis nogen skulle fjerne
+  // `hidden` i devtools: serveren afviser stadig med require_admin.
+  const erAdmin = USER?.role === 'admin';
+  $('#usersPanel').hidden = !erAdmin;
+  if(erAdmin) loadUsers(); else $('#usersList').innerHTML = '';
 }
+
+/* ---------- brugere (kun admin — invitationen ER oprettelsen) ---------- */
+// Rollenavnet er en enum for serveren, ikke et ord for en admin med en
+// telefon — skrevet ud begge steder, den bruges (listen og radioerne).
+const ROLLE_TEKST = {
+  contributor: 'Kan sende billeder ind',
+  curator: 'Kan bekræfte varer',
+  admin: 'Kan bekræfte varer og oprette brugere',
+};
+
+async function loadUsers(){
+  const r = await fetch('/api/auth/users');
+  if(!r.ok){
+    $('#usersList').innerHTML = '<li class="none">Listen over brugere kunne ikke hentes. Prøv igen.</li>';
+    return;
+  }
+  const brugere = await r.json();
+  if(brugere.length === 1){
+    $('#usersList').innerHTML = '<li class="none">Du er den eneste med en konto. Opret en til '
+      + 'dagplejeren eller en bedsteforælder, hvis de skal kunne fotografere varer til jer.</li>';
+    return;
+  }
+  $('#usersList').innerHTML = brugere.map(u => `
+    <li><span></span><span><b>${esc(u.name)}</b>${u.email === USER?.email ? ' · dig' : ''}
+        <small>${esc(u.email)}</small><br>
+      <span class="basis">${esc(ROLLE_TEKST[u.role] || u.role)}${u.active ? '' : ' · deaktiveret'}</span></span>
+      <span class="basis">${u.last_login ? 'sidst logget ind ' + danskDato(u.last_login, true)
+                                          : 'har aldrig logget ind'}</span></li>`).join('');
+}
+
+$('#newUserPwVis').onclick = () => {
+  const felt = $('#newUserPw');
+  const vis = felt.type === 'password';
+  felt.type = vis ? 'text' : 'password';
+  $('#newUserPwVis').textContent = vis ? 'Skjul' : 'Vis';
+};
+$('#newUserPwRyd').onclick = () => {
+  $('#newUserPw').value = '';
+  $('#newUserPw').focus();
+};
+
+$('#newUserGo').onclick = async () => {
+  $('#newUserErr').hidden = true;
+  $('#newUserOk').hidden = true;
+  const body = {
+    email: $('#newUserEmail').value.trim(),
+    name: $('#newUserName').value.trim(),
+    role: document.querySelector('input[name=newUserRolle]:checked').value,
+    password: $('#newUserPw').value,
+  };
+  if(!body.email || !body.name || !body.password){
+    $('#newUserErr').hidden = false;
+    $('#newUserErr').textContent = 'Udfyld mail, navn og adgangskode.';
+    return;
+  }
+
+  // HIBP-opslaget i validate_new_password() går over nettet og kan tage
+  // sekunder — uden en synlig ventetilstand trykker admin igen og ser
+  // "Den mail findes allerede", som ikke er sandt endnu.
+  const knap = $('#newUserGo');
+  knap.disabled = true;
+  knap.textContent = 'Opretter …';
+  try {
+    const r = await fetch('/api/auth/users', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    if(!r.ok){
+      // Serverens egen besked, ordret — den er allerede skrevet til et
+      // menneske (for kort, set i et datalæk, mailen findes i forvejen).
+      // Intet i formularen ryddes ved fejl — der er intet at rette, hvis
+      // det, man lige skrev, er væk.
+      const besked = (await r.json().catch(()=>({}))).detail || 'Kunne ikke oprette brugeren.';
+      $('#newUserErr').hidden = false;
+      $('#newUserErr').textContent = besked;
+      if(r.status === 409) $('#newUserEmail').focus();
+      else if(/adgangskode/i.test(besked)) $('#newUserPw').focus();
+      return;
+    }
+    // Adgangskoden ryddes IKKE — der findes ingen nulstilningsrute, så en
+    // ryddet kode her er en død konto. Admin skal kunne læse den op af
+    // feltet (»Vis«) og selv rydde den, når den er givet videre (»Ryd«).
+    $('#newUserOk').hidden = false;
+    $('#newUserOk').textContent =
+      `Oprettet. Giv adgangskoden ovenfor videre til ${body.name} — den står stadig i feltet.`;
+    $('#newUserEmail').value = '';
+    $('#newUserName').value = '';
+    document.querySelector('input[name=newUserRolle][value=contributor]').checked = true;
+    await loadUsers();
+  } finally {
+    knap.disabled = false;
+    knap.textContent = 'Opret bruger';
+  }
+};
 
 $('#authBtn').onclick = () => {
   document.querySelector('nav.tabs button[data-view="prefs"]').click();
@@ -1201,33 +1548,21 @@ $('#relLink').onclick = async e => {
 
 /* ---------- opstart ---------- */
 (async () => {
-  paintWho();
-  $('#prefName').value = prefs.name;
+  // Serveren er ren (se app/db.py), men `Object.assign({allergens:[]},
+  // gammelt)` bar et `name` fra før 0.20.0 videre uændret, hver gang
+  // denne telefon besøgte appen. Ryd det FØR første savePrefs(), så det
+  // ikke skrives tilbage endnu en gang.
+  delete prefs.name;
   ALLERGENS = await (await fetch('/api/allergens')).json();
-  const gemt = prefs.allergens.length > 0;
+  // Kun det LOKALE valg her — er nogen logget ind, henter refreshAuth()
+  // familiens sæt fra serveren og maler #who/#prefChips selv, og det
+  // sæt vinder. Filtreringen holder localStorage rent for allergener,
+  // der er omdøbt eller fjernet fra regelsættet.
   prefs.allergens = prefs.allergens.filter(s => ALLERGENS.some(a => a.slug === s));
-
-  await refreshAuth();
-  // Er der intet gemt valg, og er en af familien logget ind, så hent
-  // deres profil i stedet for at slå alle 17 til. Ellers ville en telefon
-  // med ryddet lagring vise deres bekræftede varer som UBEKRÆFTEDE —
-  // aggregate() kræver FREE på hvert valgt allergen — og lægge hele
-  // bunken tilbage i køen. Ruten kræver login, så der udstilles intet.
-  if(!gemt && USER){
-    try {
-      const profiler = await (await fetch('/api/profiles')).json();
-      const p0 = profiler[0];
-      if(p0){
-        prefs.name = prefs.name || p0.name || '';
-        prefs.allergens = p0.allergens.filter(a => a.active).map(a => a.slug);
-      }
-    } catch { /* falder igennem til alle 17 nedenfor */ }
-  }
-  // En fremmed — eller en profil uden aktive allergener — får alle 17.
   if(!prefs.allergens.length) prefs.allergens = ALLERGENS.map(a => a.slug);
   savePrefs();
-  paintPrefChips();
-  paintWho();
+
+  await refreshAuth();
   try {
     const v = await (await fetch('/api/version')).json();
     $('#verTag').textContent = `AllergiScan v${v.version}`;

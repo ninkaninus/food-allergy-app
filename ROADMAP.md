@@ -89,17 +89,64 @@ allergifamilier også. Det er billigere end at vedligeholde jeres egen kopi.
 
 ---
 
-## Fase 4 — Hvis I deler den (senere, måske aldrig)
+## Fase 4 — Den ER delt (skete august 2026)
 
-Rækkefølgen her er ikke til forhandling, hvis fremmede skal have adgang:
+Afsnittet hed »hvis I deler den, senere, måske aldrig«. Det skete i
+stedet: appen ligger åbent på internettet gennem Cloudflare Tunnel, alle
+kan scanne og se familiens bekræftelser, og kun familien godkender. Se
+`.claude/skills/familiens-data/SKILL.md` for hvad der er offentligt, og
+`tests/test_offentlig_flade.py` for grænsen skrevet som kode.
 
-1. [ ] **Multi-tenancy i routingen.** `default_household()` returnerer altid
-       husstand 1. Skemaet understøtter flere, koden gør ikke.
-2. [ ] **Rate limiting.** Læsesiden er åben. `slowapi` eller Cloudflare
-       WAF-regler.
-3. [ ] **Cloudflare Access** på skrivestierne i stedet for lokale
-       adgangskoder — `cfaccess.py` er klar, det kræver kun konfiguration
-4. [ ] **Postgres** i stedet for SQLite, når flere skriver samtidigt
+Det, listen sagde, og hvad der faktisk skete:
+
+1. [ ] **Multi-tenancy i routingen.** Stadig sandt: `default_household()`
+       returnerer altid husstand 1. Men det er nu et bevidst valg, ikke
+       gæld — der er ÉN familie, og deres bekræftelser er det offentlige.
+       Genåbnes kun af opgaven nedenfor.
+2. [x] **Rate limiting** — på login (0.19.0), nøglet på afsenderens IP, så
+       en fremmed ikke kan låse familien ude. Uploads behøvede den ikke:
+       kun inviterede kan uploade.
+3. [~] **Cloudflare Access på skrivestierne** — gjort ANDERLEDES og med
+       vilje. Access står ikke foran; adgangen ligger i appen selv, rute
+       for rute, med roller (`contributor` / `curator` / `admin`).
+       `cfaccess.py` virker stadig, hvis Access nogensinde sættes op.
+4. [x] **Postgres** — egen container siden 0.16.0, aktiv når
+       `DATABASE_URL` er sat.
+
+---
+
+## Næste større spørgsmål — en profil, der kan deles
+
+**Er det forsvarligt at lave en profil for et menneske, som kan deles?**
+Et barn, eller en man bor sammen med og handler ind til.
+
+Det er ikke en funktion, det er et spørgsmål — og det skal besvares, før
+noget bygges. Fire ting gør det svært, og de skal alle fire have et svar:
+
+1. **Det er helbredsoplysninger om et navngivet menneske.** Et
+   profilnavn plus de aktive allergener er særlig kategori efter GDPR
+   art. 9. At dele det er at videregive helbredsoplysninger — ikke at
+   dele en indkøbsliste.
+2. **Samtykke er ikke det samme for de to tilfælde.** En voksen, du bor
+   sammen med, kan sige ja. Et barn kan ikke; forælderen siger ja på
+   dets vegne — og barnet vokser op. Hvad sker der med profilen den dag,
+   hun selv kan bestemme?
+3. **Hvis dom gælder?** En dom hænger på (vare, allergen) pr. husstand,
+   og grøn kræver et menneske, der har læst den fysiske pakke. Deler man
+   en profil, stoler man så på en ANDENS bekræftelse for sit eget barn?
+   Det er invarianten anvendt på tværs af mennesker, og det er det
+   dybeste spørgsmål i hele opgaven.
+4. **Appen er åben.** »Delt« skal defineres præcist: delt med én navngiven
+   person, eller synlig for enhver med et link? De to har intet med
+   hinanden at gøre teknisk, og kun det første er oplagt forsvarligt.
+
+Rækkefølgen, hvis det skal bygges: `produktejer` presser spørgsmålet og
+skriver historien, `data-og-sikkerhed` svarer på de fem faste spørgsmål
+(formål, nødvendighed, opbevaring, adgang, følsomhed) FØR implementering.
+Det er den slags, hvor en gættet beslutning er dyrere end en udskudt.
+
+Og bemærk: punkt 1 i Fase 4 skal så genåbnes. `default_household()` er
+kun forsvarlig, så længe der er én husstand.
 
 ---
 

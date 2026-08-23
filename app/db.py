@@ -69,9 +69,35 @@ def tilfoej_manglende_kolonner() -> None:
                     )
 
 
+def _drop_scan_tabellen() -> None:
+    """
+    Bevidst, destruktiv engangshandling — ikke en fejl, hvis du støder på
+    den her. `scan` var fødevaredagbogen (hvad blev slået op, hvornår,
+    for hvilken profil), fjernet i 0.20.0.
+
+    Den kunne aldrig blive en RIGTIG fødevaredagbog, fordi familien ikke
+    scanner alt, barnet spiser. En delvis log over OPSLAG ville ikke bare
+    være svag som efterforskningsværktøj — den ville VILDLEDE: man kigger
+    i den efter en reaktion, ser ingenting, og konkluderer forkert, at
+    synderen ikke var der. En log, man ikke kan stole på, er dårligere
+    end ingen log. Og den var den mest følsomme rest af persondata i
+    basen.
+
+    `Scan` findes ikke i `Base.metadata` længere (se app/models.py), så
+    `create_all()` opretter den ikke og rører den heller ikke — tabellen
+    skal droppes eksplicit, ellers bliver dataene liggende for evigt,
+    fordi ingen husker at køre en kommando. `DROP TABLE IF EXISTS` er
+    idempotent: efter første oprydning er den en billig no-op ved hver
+    opstart.
+    """
+    with engine.begin() as con:
+        con.execute(text("DROP TABLE IF EXISTS scan"))
+
+
 def init_db() -> None:
     Base.metadata.create_all(engine)
     tilfoej_manglende_kolonner()
+    _drop_scan_tabellen()
     with SessionLocal() as db:
         # Allergener synkroniseres fra YAML ved hver opstart.
         for slug, rule in RULES.allergens.items():
@@ -88,6 +114,15 @@ def init_db() -> None:
         # Allergen-rækkerne skal have id'er, før profilerne kan pege på dem.
         db.flush()
 
+        # `Profile.name` lå unødigt på serveren: headerens "Tjekker for …"
+        # kommer udelukkende fra telefonens egen localStorage og har
+        # ALDRIG læst denne kolonne. Ryd en værdi, der allerede ligger i
+        # produktionsdatabasen fra før dette — kolonnen er NOT NULL, så
+        # den bliver ved med at eksistere, tom. Billigt at tjekke hver
+        # opstart; kører kun UPDATE, når der rent faktisk er noget at rydde.
+        for p in db.scalars(select(Profile).where(Profile.name != "")):
+            p.name = ""
+
         # Første husstand + profil, så appen er brugbar med det samme.
         fresh: set[int] = set()
         if db.scalar(select(Household)) is None:
@@ -97,7 +132,10 @@ def init_db() -> None:
             )
             db.add(hh)
             db.flush()
-            prof = Profile(household_id=hh.id, name=os.getenv("PROFILE_NAME", "Barn"))
+            # Tomt med vilje — se oprydningen ovenfor. Ingen PROFILE_NAME
+            # mere: et barnets navn skal ikke kunne sættes via serverens
+            # miljøvariabler, når det slet ikke må ligge på serveren.
+            prof = Profile(household_id=hh.id, name="")
             db.add(prof)
             db.flush()
             fresh.add(prof.id)

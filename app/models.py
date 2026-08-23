@@ -58,6 +58,10 @@ class Profile(Base):
     __tablename__ = "profile"
     id: Mapped[int] = mapped_column(primary_key=True)
     household_id: Mapped[int] = mapped_column(ForeignKey("household.id"))
+    # Holdes bevidst tom (""). Barnets navn er ikke en del af det, appen
+    # gemmer på serveren — headerens "Tjekker for …" kommer udelukkende
+    # fra telefonens egen localStorage. NOT NULL, så en tom streng, ikke
+    # NULL, er den rensede tilstand — se init_db() i app/db.py.
     name: Mapped[str] = mapped_column(String(120))
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
 
@@ -146,11 +150,11 @@ class ReviewItem(Base):
     """
     Bekræftelseskøen — varer som skal dobbelttjekkes mod den fysiske emballage.
 
-    `product_ean` er med vilje IKKE en fremmednøgle, ligesom i `Scan`.
-    Køens vigtigste post er netop `reason="not_found"`: en stregkode, som
-    Open Food Facts ikke kender, og som derfor ikke har nogen række i
-    `product`. Kravet om et produkt ville gøre det umuligt at huske "den
-    her skal I fotografere" — altså dét, køen er til for.
+    `product_ean` er med vilje IKKE en fremmednøgle. Køens vigtigste post
+    er netop `reason="not_found"`: en stregkode, som Open Food Facts ikke
+    kender, og som derfor ikke har nogen række i `product`. Kravet om et
+    produkt ville gøre det umuligt at huske "den her skal I fotografere"
+    — altså dét, køen er til for.
 
     SQLite håndhæver ikke fremmednøgler, så begrænsningen var i praksis
     uden virkning; den viste sig først, da databasen skulle flyttes til
@@ -170,16 +174,15 @@ class ReviewItem(Base):
     resolved_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
 
 
-class Scan(Base):
-    """Log. Gør det muligt at svare på 'hvornår gav vi hende den her sidst?'."""
-
-    __tablename__ = "scan"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    household_id: Mapped[int] = mapped_column(ForeignKey("household.id"))
-    profile_id: Mapped[int | None] = mapped_column(ForeignKey("profile.id"), nullable=True)
-    product_ean: Mapped[str] = mapped_column(String(20))
-    result: Mapped[str] = mapped_column(String(16))
-    scanned_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
+# `Scan` (fødevaredagbogen: hvad blev slået op, hvornår, for hvilken
+# profil) er FJERNET i 0.20.0, ikke migreret — se init_db() i app/db.py
+# for begrundelsen og den destruktive DROP TABLE. Kort version: familien
+# scanner ikke alt, barnet spiser, så en delvis log ville ikke bare være
+# svag som efterforskningsværktøj — den ville vildlede. Man kigger efter
+# en reaktion, ser ingenting, og konkluderer forkert, at synderen ikke
+# var der. Det var også den mest følsomme rest af persondata i basen.
+# Led du efter klassen, fordi noget stadig importerer den: det skal det
+# ikke længere, og importen er fejlen, ikke denne kommentar.
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +195,13 @@ class Scan(Base):
 # ---------------------------------------------------------------------------
 
 
+# Delt mellem app/main.py (opretter/lister brugere via API'et) og
+# app/cli.py (opretter via `adduser`) — begge skal afvise en ukendt
+# rolle med samme svar, i stedet for hver sin gættede tjekliste. "viewer"
+# har aldrig eksisteret i en udgivet version og hører ikke med.
+GYLDIGE_ROLLER = {"contributor", "curator", "admin"}
+
+
 class User(Base):
     __tablename__ = "app_user"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -200,9 +210,17 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(120))
     # NULL når brugeren udelukkende kommer ind gennem proxy-auth
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # viewer = kan kun læse (bruges sjældent, læsning er åben)
-    # curator = kan bekræfte varer
-    # admin = kan oprette brugere
+    # Fire trin, hvoraf det første ikke er en rolle: anonym (ingen
+    # konto) kan scanne, søge og se familiens bekræftelser — det er
+    # appens åbne opslagsværk. GYLDIGE_ROLLER ovenfor lægger tre trin
+    # oveni:
+    #   contributor = + fotografere en vare, køre OCR, og SE (ikke ændre)
+    #                 familiens allergensæt. IKKE bekræfte, og IKKE se
+    #                 familiens egne ting (kø, diagnostik). Til betroede
+    #                 bedsteforældre eller den faste dagplejer — ikke til
+    #                 en gæstedagplejer, som forbliver anonym.
+    #   curator     = + bekræfte varer, ændre allergensættet
+    #   admin       = + oprette brugere
     role: Mapped[str] = mapped_column(String(16), default="curator")
     source: Mapped[str] = mapped_column(String(16), default="local")  # local | proxy
     active: Mapped[bool] = mapped_column(Boolean, default=True)

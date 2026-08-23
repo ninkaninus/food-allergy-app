@@ -47,6 +47,21 @@ def auth(client):
     return c
 
 
+@pytest.fixture(scope="module")
+def curator_auth(client):
+    """En almindelig familiebruger — ikke admin. Bruges til at bevise, at
+    brugeroprettelse kræver mere end blot login."""
+    with SessionLocal() as db:
+        if not db.query(User).filter(User.email == "cur@example.dk").count():
+            db.add(User(household_id=default_household(db).id, email="cur@example.dk",
+                        name="Cur", password_hash=hash_password(PW), role="curator"))
+            db.commit()
+    c = TestClient(app)
+    assert c.post("/api/auth/login",
+                  json={"email": "cur@example.dk", "password": PW}).status_code == 200
+    return c
+
+
 # --- læsning er åben ------------------------------------------------------
 
 @pytest.mark.parametrize("path", [
@@ -127,6 +142,92 @@ def test_toggle_allergen_works_with_login(auth):
     auth.post(
         f"/api/profiles/{pid}/allergens", json={"slug": "maelkeprotein", "active": True}
     )
+
+
+# --- oprettelse af brugere: dette ER invitationen, intet token ------------
+#
+# "Inviterede bidragydere" (rollen `contributor`): en admin sætter mailen,
+# navnet, rollen og adgangskoden og giver den videre selv. Se
+# tests/test_offentlig_flade.py for hvad de tre roller må se og gøre.
+
+def test_brugerliste_kraever_login(client):
+    assert client.get("/api/auth/users").status_code == 401
+
+
+def test_brugeroprettelse_kraever_login(client):
+    r = client.post("/api/auth/users", json={
+        "email": "uden-login@example.dk", "name": "Uden login",
+        "password": PW, "role": "contributor",
+    })
+    assert r.status_code == 401
+
+
+def test_brugerliste_og_oprettelse_kraever_admin_ikke_kun_login(curator_auth):
+    """En almindelig familiebruger (curator) kan bekræfte varer, men kan
+    ikke invitere nye brugere — det er admins ansvar alene."""
+    assert curator_auth.get("/api/auth/users").status_code in (401, 403)
+    r = curator_auth.post("/api/auth/users", json={
+        "email": "af-curator@example.dk", "name": "Af curator",
+        "password": PW, "role": "contributor",
+    })
+    assert r.status_code in (401, 403)
+
+
+def test_admin_kan_invitere_en_bidragyder(auth):
+    r = auth.post("/api/auth/users", json={
+        "email": "mormor-auth-test@example.dk", "name": "Mormor",
+        "password": PW, "role": "contributor",
+    })
+    assert r.status_code == 200, r.text
+
+    liste = auth.get("/api/auth/users").json()
+    ny = next(u for u in liste if u["email"] == "mormor-auth-test@example.dk")
+    assert ny["role"] == "contributor"
+    assert ny["active"] is True
+    assert ny["last_login"] is None, "en lige oprettet bruger har aldrig logget ind endnu"
+    assert "password_hash" not in ny
+
+
+def test_dublet_mail_afvises_uden_at_oprette_noget(auth):
+    r = auth.post("/api/auth/users", json={
+        "email": "mormor-auth-test@example.dk", "name": "Igen",
+        "password": PW, "role": "contributor",
+    })
+    assert r.status_code == 409
+    assert r.json()["detail"] == "Den mail findes allerede."
+
+
+def test_for_kort_kodeord_giver_menneskelig_besked(auth):
+    """Serverens egen besked skal med ordret — den er skrevet til et
+    menneske, ikke til en logfil."""
+    r = auth.post("/api/auth/users", json={
+        "email": "kort-kode@example.dk", "name": "Kort kode",
+        "password": "for-kort", "role": "contributor",
+    })
+    assert r.status_code == 400
+    assert "mindst" in r.json()["detail"]
+
+
+def test_ukendt_rolle_afvises(auth):
+    r = auth.post("/api/auth/users", json={
+        "email": "ukendt-rolle@example.dk", "name": "Ukendt rolle",
+        "password": PW, "role": "superadmin",
+    })
+    assert r.status_code == 400
+
+
+def test_viewer_er_ikke_en_rolle(auth):
+    """
+    "viewer" fandtes kun i en uudgivet version og blev omdøbt til
+    "contributor", før 0.20.0 ramte main — en "kan kun læse"-konto giver
+    ingen adgang, appens læsning er allerede åben. Ingen migrering: der
+    findes ingen rækker med den gamle værdi.
+    """
+    r = auth.post("/api/auth/users", json={
+        "email": "gammel-rolle@example.dk", "name": "Gammel rolle",
+        "password": PW, "role": "viewer",
+    })
+    assert r.status_code == 400
 
 
 def test_bad_password_rejected(client):

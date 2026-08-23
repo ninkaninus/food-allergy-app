@@ -27,7 +27,7 @@ from app.db import SessionLocal, default_household, init_db
 from app.main import app
 from sqlalchemy import select
 
-from app.models import Product, ReviewItem, Scan, User, Verdict
+from app.models import Product, ReviewItem, User, Verdict
 
 PW = "korrekt-hest-batteri-haefteklamme"
 EANS = ["5700000000017", "5700000000024"]
@@ -53,7 +53,7 @@ def auth():
     # ALLE varer — lader vi vores to rækker blive stående, fejler den.
     with SessionLocal() as db:
         for ean in EANS:
-            for model in (Verdict, ReviewItem, Scan):
+            for model in (Verdict, ReviewItem):
                 for row in db.scalars(select(model).where(model.product_ean == ean)):
                     db.delete(row)
             p = db.get(Product, ean)

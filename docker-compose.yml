@@ -33,7 +33,6 @@ services:
     environment:
       OFF_USER_AGENT: "${OFF_USER_AGENT:-AllergiScan (selfhosted)}"
       HOUSEHOLD_NAME: "${HOUSEHOLD_NAME:-Vores husstand}"
-      PROFILE_NAME: "${PROFILE_NAME:-Barn}"
       TZ: "${TZ:-Europe/Copenhagen}"
       COOKIE_SECURE: "${COOKIE_SECURE:-1}"
       SESSION_DAYS: "${SESSION_DAYS:-30}"

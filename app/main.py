@@ -39,6 +39,7 @@ from .matcher import Basis, State, aggregate, fold, ingredients_hash, normalize
 from .version import VERSION
 from .models import (
     Allergen,
+    GYLDIGE_ROLLER,
     ImportedProduct,
     ProductPhoto,
     User,
@@ -46,7 +47,6 @@ from .models import (
     Profile,
     ProfileAllergen,
     ReviewItem,
-    Scan,
     Verdict,
     now,
 )
@@ -347,6 +347,12 @@ async def _ensure_product(db: Session, ean: str, refresh: bool = False) -> tuple
 
 @app.get("/api/profiles")
 def list_profiles(
+    # require_user, ikke require_curator: allergensættet er familiens
+    # DELTE indstilling, og en inviteret bidragyder skal hente det samme
+    # sæt som familien selv — ellers kunne hun ende med at tjekke for de
+    # forkerte allergener. Der er ikke noget navn at skjule for hende
+    # længere (se Profile.name), kun allergenerne, og dem må hun kende
+    # for at kunne hjælpe med rigtige billeder.
     _: User = Depends(require_user),
     db: Session = Depends(get_session),
 ):
@@ -356,7 +362,6 @@ def list_profiles(
         out.append(
             {
                 "id": prof.id,
-                "name": prof.name,
                 "allergens": [
                     {
                         "slug": pa.allergen.slug,
@@ -386,16 +391,20 @@ def toggle_allergen(
     db: Session = Depends(get_session),
 ):
     """
-    Slå et allergen til/fra uden at røre ved produktdata eller domme.
+    Slå et allergen til/fra for HELE familien — uden at røre produktdata
+    eller domme.
 
-    Kræver login som de øvrige skrivninger. Fluebenene i PWA'en går IKKE
-    herigennem — de bor i telefonens localStorage og sendes med som
-    `allergens=` på hvert opslag, så dagplejerens telefon kan sætte sine egne
-    kryds uden konto. Det her endpoint skriver den gemte profil, altså den
-    tilstand `scan` falder tilbage på, når parameteren mangler. Læsning er
-    fortsat åben; det er kun ændringer af, hvad appen advarer om, der kræver
-    en bruger.
+    Siden 0.20.0 er dette PWA'ens egen skrivevej for curator/admin:
+    chipsene under Indstillinger kalder ruten direkte, og ændringen
+    gælder med det samme på alle telefoner, der er logget ind (se
+    `effektivAllergener()` i app/static/index.html). Den anonyme vej er
+    stadig `allergens=` på `/api/scan` — men den vælger kun, hvad ÉN
+    scanning skal vurderes imod, den skriver ingenting.
     """
+    hh = default_household(db)
+    prof = db.get(Profile, profile_id)
+    if prof is None or prof.household_id != hh.id:
+        raise HTTPException(404, "ukendt profil")
     a = db.scalar(select(Allergen).where(Allergen.slug == body.slug))
     if a is None:
         raise HTTPException(404, "ukendt allergen")
@@ -436,8 +445,9 @@ async def scan(
     hh = default_household(db)
     # Profilen vælges IKKE af kalderen længere. Før kom `profile_id` fra
     # query-strengen og blev slået op uden at tjekke husstanden, så en
-    # fremmed kunne skrive i netop dette barns dagbog og selv vælge
-    # barnet. Appen sendte den aldrig selv — frontend bruger `allergens=`.
+    # fremmed kunne vælge et andet barns profil og få DENS allergensæt
+    # personaliseret ud. Appen sendte den aldrig selv — frontend bruger
+    # `allergens=`.
     prof = db.scalar(select(Profile).where(Profile.household_id == hh.id))
     # ?refresh=true springer 14-dages-cachen over. Den må en ulogindet
     # kalder ikke styre.
@@ -479,13 +489,11 @@ async def scan(
         }
 
     if product is None:
-        # Dagbogen OG køen er familiens egne: de føres kun, når en af dem
-        # er logget ind. Ellers kunne enhver på internettet fylde
-        # arbejdsbunken — og genåbne poster, familien havde lukket.
+        # Køen er familiens egen: den føres kun, når nogen er logget ind.
+        # Ellers kunne enhver på internettet fylde arbejdsbunken — og
+        # genåbne poster, familien havde lukket.
         if bruger is not None:
             _queue(db, hh.id, ean, "not_found")
-            db.add(Scan(household_id=hh.id, profile_id=prof.id if prof else None,
-                        product_ean=ean, result="unknown"))
         db.commit()
         return {
             "ean": ean,
@@ -522,9 +530,6 @@ async def scan(
             "no_ingredients" if not product.ingredients_text else "maybe_hit",
         )
 
-    if bruger is not None:                      # se kommentaren ovenfor
-        db.add(Scan(household_id=hh.id, profile_id=prof.id if prof else None,
-                    product_ean=ean, result=result))
     db.commit()
 
     return {
@@ -544,15 +549,16 @@ async def scan(
             "ingredients_lang": product.ingredients_lang,
         },
         "allergens": rows,
-        # Køen og dagbogen føres kun for en indlogget bruger. Er sessionen
-        # løbet ud (30 dage), får man en helt normal dom — men varen lander
-        # ikke i køen. Det skal kunne SES på skærmen, ikke kun udledes af
-        # at knappen i headeren har skiftet tekst.
+        # Betyder KUN "lagt i bekræftelseskøen, hvis der var grund til
+        # det" — der er ingen dagbog mere (se Scan i app/models.py). Er
+        # sessionen løbet ud (30 dage), får man en helt normal dom — men
+        # varen lander ikke i køen. Det skal kunne SES på skærmen, ikke
+        # kun udledes af at knappen i headeren har skiftet tekst.
         "gemt": bruger is not None,
-        # Barnets navn er ikke en del af det offentlige opslagsværk. Det
-        # er helbredsoplysninger om et navngivet, mindreårigt menneske —
-        # se .claude/skills/familiens-data.
-        "profile": {"id": prof.id, "name": prof.name} if (prof and bruger) else None,
+        # `Profile.name` findes ikke mere (se app/db.py) — der er intet
+        # navn tilbage at holde ude af det offentlige opslagsværk. `id`
+        # står, hvis noget en dag skal slå profilen op.
+        "profile": {"id": prof.id} if (prof and bruger) else None,
     }
 
 
@@ -632,7 +638,9 @@ def confirm(
 
 @app.get("/api/queue")
 def queue(
-    _: User = Depends(require_user),
+    # require_curator, ikke require_user: en inviteret bidragyder (contributor)
+    # må fotografere en vare, men ikke se familiens arbejdsbunke.
+    _: User = Depends(require_curator),
     db: Session = Depends(get_session),
 ):
     hh = default_household(db)
@@ -763,9 +771,15 @@ async def create_user(
     Opretter en bruger. Adgangskoden tjekkes mod Have I Been Pwned med
     k-anonymitet, så genbrugte kodeord bliver afvist uden at kodeordet
     nogensinde forlader maskinen. Se auth.py.
+
+    Dette ER invitationen — der er intet token, intet link. Admin sætter
+    adgangskoden og giver den videre til den inviterede, ligesom med
+    `python -m app.cli adduser`.
     """
     from .auth import hash_password
 
+    if body.role not in GYLDIGE_ROLLER:
+        raise HTTPException(400, f"ukendt rolle: {body.role}")
     await validate_new_password(body.password)
     if db.scalar(select(User).where(User.email == body.email.lower())):
         raise HTTPException(409, "Den mail findes allerede.")
@@ -782,6 +796,37 @@ async def create_user(
     )
     db.commit()
     return {"ok": True}
+
+
+@app.get("/api/auth/users")
+def list_users(
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_session),
+):
+    """
+    Listen, der gør en invitation til en beslutning man kan se: hvem er
+    allerede inviteret, med hvilken rolle, og har hun overhovedet logget
+    ind. Kun det en admin skal bruge for at oprette en ny uden at lave en
+    dublet — ALDRIG `password_hash`, `source` eller `household_id`.
+    """
+    hh = default_household(db)
+    return [
+        {
+            "id": u.id,
+            "email": u.email,
+            "name": u.name,
+            "role": u.role,
+            "active": u.active,
+            # Samme UTC-uden-zone-fælde som taget_at ovenfor — se den note.
+            # timespec="seconds", samme som taget_at i _foto_svar() —
+            # ellers får den her mikrosekunder, som ingen har brug for.
+            "last_login": (u.last_login.isoformat(timespec="seconds") + "Z")
+            if u.last_login else None,
+        }
+        for u in db.scalars(
+            select(User).where(User.household_id == hh.id).order_by(User.id)
+        )
+    ]
 
 
 # --------------------------------------------------------------------------
@@ -1147,6 +1192,12 @@ def _rens(ean: str, slags: str) -> tuple[str, str]:
 
 def _foto_svar(db: Session, hh_id: int, ean: str, bruger: User | None = None) -> dict:
     ud = {}
+    # taget_af er en VOKSENS navn og ryger ikke ud af huset — og siden
+    # 0.20.0 dækker "indlogget" også en inviteret bidragyder. Familien,
+    # dem der rent faktisk bekræfter en vare og har brug for at vide hvis
+    # billede de kigger på, er curator/admin. En bidragyder har intet
+    # brug for at se sit eget navn ekko'et tilbage.
+    familie = bruger is not None and bruger.role in ("curator", "admin")
     for f in db.scalars(
         select(ProductPhoto).where(
             ProductPhoto.household_id == hh_id, ProductPhoto.product_ean == ean
@@ -1156,11 +1207,12 @@ def _foto_svar(db: Session, hh_id: int, ean: str, bruger: User | None = None) ->
         ud[f.slags] = {
             "url": f"/api/products/{ean}/foto/{f.slags}?v={v}",
             "mini_url": f"/api/products/{ean}/foto/{f.slags}?v={v}&mini=1",
-            "taget_at": f.taget_at.isoformat(timespec="minutes"),
-            # taget_af er en VOKSENS navn og ryger ikke ud af huset.
-            # Det står i databasen som sporbarhed på, hvem der tog
-            # billedet — ikke som noget, en fremmed skal kunne læse.
-            **({"taget_af": f.taget_af} if bruger is not None else {}),
+            # "Z" med vilje: taget_at er UTC (models.now()) men gemmes
+            # naivt, og uden zone læser browseren isoformat() som LOKAL
+            # tid — et foto taget kl. 23:30 stod som 21:30, og et taget
+            # mellem midnat og kl. 02 viste GÅRSDAGENS dato.
+            "taget_at": f.taget_at.isoformat(timespec="seconds") + "Z",
+            **({"taget_af": f.taget_af} if familie else {}),
             "bredde": f.bredde,
             "hoejde": f.hoejde,
         }
@@ -1172,7 +1224,10 @@ def gem_foto(
     ean: str,
     slags: str = "deklaration",
     image: UploadFile = File(...),
-    user: User = Depends(require_curator),
+    # require_user, ikke require_curator: en inviteret bidragyder (contributor)
+    # må sende billeder ind. `taget_af` bærer navnet videre, så familien
+    # altid kan se og spørge, hvem der har fotograferet hvad.
+    user: User = Depends(require_user),
     db: Session = Depends(get_session),
 ):
     """
@@ -1181,7 +1236,8 @@ def gem_foto(
 
     Billedet er jeres eget og bliver på serveren. Det er IKKE et bevis:
     et foto gør ingen vare grøn, og dommen kommer stadig fra motoren
-    eller fra en bekræftelse mod emballagen.
+    eller fra en bekræftelse mod emballagen. Uploaderen kan være en
+    inviteret bidragyder, ikke kun familien selv.
     """
     from PIL import Image, ImageOps
 
@@ -1282,7 +1338,10 @@ def slet_foto(
 @app.post("/api/ocr")
 def ocr_declaration(
     image: UploadFile = File(...),
-    _: User = Depends(require_curator),
+    # require_user, ikke require_curator: en inviteret bidragyder (contributor)
+    # skal kunne se, om billedet var læsbart, mens hun står med varen —
+    # men OCR sætter aldrig en dom, så det kræver ikke curator-rollen.
+    _: User = Depends(require_user),
 ):
     """
     Foto af varedeklarationen -> tekst. Kører lokalt i containeren; billedet
@@ -1382,7 +1441,9 @@ def version():
 
 @app.get("/api/diagnostik")
 async def diagnostik(
-    _: User = Depends(require_user),
+    # require_curator, ikke require_user: en inviteret bidragyder (contributor)
+    # skal ikke kunne se serversti, antal brugere eller rå OFF-fejl.
+    _: User = Depends(require_curator),
     db: Session = Depends(get_session),
 ):
     """

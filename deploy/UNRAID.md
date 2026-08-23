@@ -89,7 +89,7 @@ Ret som minimum:
 | Linje | Til |
 |---|---|
 | `OFF_USER_AGENT=` | din rigtige mailadresse i parentesen — OFF kræver det |
-| `HOUSEHOLD_NAME=`, `PROFILE_NAME=` | jeres navne, valgfrit |
+| `HOUSEHOLD_NAME=` | husstandens navn, valgfrit. Barnets navn gemmes IKKE — se CHANGELOG 0.20.0 |
 
 Lad resten stå. `COMPOSE_PROFILES=tunnel` og `DATA_PATH` passer allerede
 til layoutet, og `APP_IMAGE` skal du aldrig selv røre — den ejes af agenten.
