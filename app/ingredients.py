@@ -202,7 +202,10 @@ def filter_products(
         out.append(
             {
                 "ean": p.ean,
-                "name": p.name,
+                # p.visningsnavn, ikke p.name: en vare familien selv har
+                # navngivet (product.navn_manuelt, se app/models.py) skal
+                # ikke stå som »Uden navn« i »Fri for«-fanen.
+                "name": p.visningsnavn,
                 "brand": p.brand,
                 "image_url": p.image_url,
                 "n_ingredients": n_indexed,

@@ -312,3 +312,41 @@ def test_kobling_kan_fjernes_igen(client, auth):
         ip_id = ip.id
     assert auth.post(f"/api/liste/{ip_id}/stregkode", json={"ean": None}).status_code == 200
     assert "Arkets Skinke" in {v["navn"] for v in _hent(client, q="arkets skinke")}
+
+
+def test_product_visningsnavn_foelger_navn_manuelt():
+    """
+    Reglen bor på modellen (Product.visningsnavn), ikke kun i
+    _visningsnavn() i app/main.py — se test_filter_products_bruger_
+    visningsnavn herunder for hvorfor det er sat der, ikke kun i en
+    hjælpefunktion, der kan glemmes ét sted mens den huskes et andet.
+    """
+    from app.models import Product as P
+    p = P(ean="0", name="Open Food Facts' gæt")
+    assert p.visningsnavn == "Open Food Facts' gæt"
+    p.navn_manuelt = "Familiens eget navn"
+    assert p.visningsnavn == "Familiens eget navn", "navn_manuelt vandt ikke i visningsnavn"
+
+
+def test_filter_products_bruger_visningsnavn(client):
+    """
+    `filter_products()` (app/ingredients.py, bruges af /api/products, som
+    »Fri for«-fanen kalder) returnerede før `p.name` rå — en vare, familien
+    selv har navngivet (product.navn_manuelt), stod dér som »Uden navn«,
+    selvom scan-skærmen og /api/soeg viste navnet fint.
+    """
+    from app import ingredients as ix
+
+    ean = "5799990000099"
+    with SessionLocal() as db:
+        db.add(Product(ean=ean, name=None, navn_manuelt="Familiens Eget Navn",
+                       ingredients_text="Vand, ualmindeligtsjaeldeningrediens99"))
+        db.flush()
+        ix.index_product(db, ean, None, [], "Vand, ualmindeligtsjaeldeningrediens99")
+        db.commit()
+        rows = ix.filter_products(db, include=["ualmindeligtsjaeldeningrediens99"], limit=50)
+    assert len(rows) == 1, "testens egen ingrediens matchede uventet flere varer"
+    assert rows[0]["ean"] == ean
+    assert rows[0]["name"] == "Familiens Eget Navn", (
+        "filter_products() viser stadig p.name rå i stedet for p.visningsnavn"
+    )

@@ -34,16 +34,17 @@ hvis noget først forlader den.
 | `Profile.name` | INTET. Kolonnen findes (NOT NULL), men holdes tom | Ryddes ved HVER opstart, `init_db()` | Ingen. Sendes i intet svar; efterprøvet med en base, der havde et navn i sig |
 | `ProfileAllergen.allergen_id/severity/active` | Hvad barnet ikke tåler — hele appens formål | Lever med profilen | **Alle indloggede, også `contributor`** (`/api/profiles`, `/api/scan`). En fremmeds opslag vurderer alle 17, så svaret ikke røber de fire |
 | `User.email` | Login-identitet; nøglen der matcher proxy-/Access-identitet | UKENDT — ingen sletterute | Egen via `/api/auth/me`; ALLE husstandens mails via `/api/auth/users` (`require_admin`, 0.20.0) |
-| `User.name` | Gemmes som `decided_by` på domme og `taget_af` på fotos | UKENDT — ingen sletterute | `decided_by` sendes i INTET svar. `taget_af` sendes til **enhver indlogget**, også en `contributor` — ikke til anonyme. Hele navnelisten til admin via `/api/auth/users` |
+| `User.name` | Gemmes som `decided_by` på domme og `taget_af` på fotos | UKENDT — ingen sletterute | `decided_by` sendes i INTET svar. `taget_af` sendes **kun til curator/admin** (`_foto_familie()`, strammet i 0.21.0) — ikke til anonyme og ikke til en bidragyder. Hele navnelisten til admin via `/api/auth/users` |
 | `User.password_hash` | argon2id. NULL, når brugeren kun kommer ind via proxy/Access | Lever med brugeren | Ingen (hash) |
 | `User.role` (`contributor`/`curator`/`admin`), `source`, `active`, `last_login` | Adgangsstyring og drift | Lever med brugeren | `role`+`active`+`last_login` til admin via `/api/auth/users`. `source` og `household_id` sendes bevidst IKKE med |
 | `SessionToken.token_hash` | Kun sha256 af cookien gemmes — tabellen er værdiløs, hvis den lækker | UKENDT. `expires_at` (default 30 dage, `SESSION_DAYS`) er GYLDIGHED, ikke opbevaring: rækken slettes aldrig. Kun `revoke_session()` ved eksplicit logout fjerner én, og der er ingen oprydning af udløbne | Ingen |
 | `SessionToken.user_agent` | Enhedsfingeraftryk; kunne bruges til "log andre enheder ud" | UKENDT — samme som token_hash ovenfor | Den, der har databasen |
 | `Verdict.decided_by`, `decided_at`, `note` | Hvem bekræftede hvad hvornår — sporbarhed på en sikkerhedsafgørelse | Indefinit med vilje: dommen ER arbejdet | Alle, der læser en vare |
 | `ImportedProduct` (navn, producent, kategori, **valideret_mod**, ean) | Familiens gamle regneark, 583 varer | Erstattes ved genimport | **Offentligt** via `/api/soeg` og `/api/scan` — det ER opslagsværket. Bemærk: `valideret_mod` er en konstant (»æg, mælk, tomat og banan«) på ~583 rækker, altså barnets allergensæt udledt af gentagelsen. Det er uadskilleligt fra at publicere bekræftelserne. `link` og `erstatning_for` importeres, men udstilles ingen steder |
-| `ProductPhoto` + filerne under `DATA_DIR/billeder` | Jeres egne fotos af forside og deklaration | Ét pr. (vare, slags); nyt erstatter gammelt. Ingen historik | **Offentligt — bevidst.** Fotoet af deklarationen ER dokumentationen bag en bekræftelse. Prisen: stregkoder kan opremses, og billederne er taget i familiens køkken og i butikker. Står som `test_fotoruten_er_bevidst_offentlig`; lukkes med én dependency |
-| `ProductPhoto.taget_af` | Hvem tog billedet — kan fra 0.20.0 være en inviteret bidragyder | Lever med billedet | **Ikke til anonyme** (efterprøvet). Til enhver indlogget, i `/api/scan` og fotosvaret. UBESLUTTET: selve billedfilerne er stadig offentlige |
+| `ProductPhoto` + filerne under `DATA_DIR/billeder` | Jeres egne fotos af forside og deklaration | FLERE pr. (vare, slags) siden 0.21.0 — intet erstattes automatisk. Lever, til et menneske sletter det | **Offentligt — bevidst.** Fotoet af deklarationen ER dokumentationen bag en bekræftelse. Prisen: stregkoder kan opremses, og billederne er taget i familiens køkken og i butikker. Står som `test_fotoruten_er_bevidst_offentlig`; lukkes med én dependency |
+| `ProductPhoto.taget_af` | Hvem tog billedet — kan fra 0.20.0 være en inviteret bidragyder | Lever med billedet; `ondelete="SET NULL"` nulstiller kun `taget_af_user_id`, **navnestrengen bliver stående** | **Kun curator/admin** (`_foto_familie()`, 0.21.0). Ikke til anonyme, og ikke til en bidragyder — heller ikke hendes eget navn. UBESLUTTET: selve billedfilerne er stadig offentlige |
 | `ProductPhoto.taget_at` | Hvornår billedet blev taget | Lever med billedet | **Offentligt** — følger med fotosvaret til anonyme. Det er en tidslinje over, hvornår husstanden har fotograferet hvad |
+| `Product.navn_manuelt` (0.21.0) | Varenavn, en curator selv skriver, når Open Food Facts ikke kender varen — så forsidefotoet kan matches mod et navn | Lever med varen; overskrives ALDRIG af OFF (det var hele pointen) | **Offentligt.** Fritekst, 400 tegn, som en curator skriver og enhver besøgende læser i `/api/scan` og `/api/soeg`. Der er ingen fortrydelse ud over at skrive noget andet. Feltet ligger adskilt fra `product.name`, så OFF's eget navn står urørt og `attribution()` ikke tæller familiens arbejde som ODbL-materiale |
 | `ReviewItem` (ean, reason, status, created_at) | Bekræftelseskøen — arbejdsbunken | Ingen oprydning; løste poster bliver stående | `require_curator`. Nærmeste rest af »adfærd over tid«, men ÉN række pr. (husstand, EAN): ingen gentagelser, ingen profil, ingen anonyme opslag |
 | `Household.token` | Genereres ved første start; ubrugt i dag | Lever med husstanden | Den, der har databasen |
 
@@ -74,19 +75,30 @@ end de tre.
 |---|---|---|---|
 | `GET /api/scan/{ean}` — dommen* | `GET /api/profiles` — allergensættet, uden navn | `GET /api/queue` | `GET /api/auth/users` |
 | `GET /api/soeg`, `GET /api/products` | `POST /api/products/{ean}/foto` | `GET /api/diagnostik` | `POST /api/auth/users` |
-| `GET /api/products/{ean}/foto/{slags}` | `POST /api/ocr` | `POST .../confirm`, `DELETE .../foto/{slags}` | |
+| `GET .../foto/{slags}`, `GET .../foto/{slags}/{foto_id}`, `GET .../fotos` | `POST /api/ocr`, `DELETE .../foto/{slags}/{foto_id}` (kun sit eget) | `POST .../confirm`, `POST .../navn`, `DELETE` af hvem som helsts foto | |
 | `/api/allergens`, `/api/version`, `/api/changelog`, `/api/attribution` | | `POST /api/profiles/{id}/allergens`, `POST /api/liste/{id}/stregkode` | |
 | `/`, `/static`, `/healthz`, `/api/ingredients/suggest`, `/api/auth/me` | | | |
 
 `/docs`, `/redoc` og `/openapi.json` er slået helt fra (404, efterprøvet).
 
-**Bemærk asymmetrien i fotoruterne.** En `contributor` må UPLOADE
-(`require_user`), men ikke SLETTE (`require_curator`) — og GET er åben.
-Hendes billede er dermed offentligt læsbart med det samme, og hun kan
-ikke selv trække det tilbage. Hun kan desuden overskrive familiens
-eksisterende deklarationsfoto, hvorefter `taget_af` skifter til hendes
-navn og det gamle billede er væk uden historik. Begge dele er efterprøvet
-mod live 2026-08-23 og står som åbne spørgsmål nedenfor.
+**Fotoruterne, som de ser ud efter 0.21.0.** Asymmetrien fra 0.20.0 er
+væk: en `contributor` må uploade OG slette sit eget igen
+(`require_user` + ejerskab afgjort på `taget_af_user_id`, ikke på
+navnestrengen). Hun kan ikke længere overskrive familiens billede —
+intet erstattes automatisk, alle billeder ligger side om side, og en
+curator rydder op. `GET` er stadig åben for alle, så hendes billede er
+offentligt læsbart i det sekund, det er uploadet; forskellen er, at hun
+nu selv kan trække det tilbage.
+
+`_foto_kan_slette()` er den ENE regel, både `slet_foto()` og
+grænsefladen bruger. Deles den op igen, kan appen komme til at vise en
+knap, brugeren får 403 på — det var netop fejlen i 0.20.0's
+bekræftelsesforløb.
+
+Et `foto_id` er et fortløbende heltal, og `GET .../foto/{slags}/{foto_id}`
+er åben. Billederne kan altså opremses af en fremmed, der kender EAN'en.
+Bevidst, jf. »åbent opslagsværk« — men det er grunden til, at sletningen
+skal kunne nås fra grænsefladen, og ikke kun findes på serveren.
 
 \* **`GET /api/scan` svarer FORSKELLIGT alt efter, om der er en bruger.**
 For en indlogget: `profile: {id}` (KUN id'et — der er ikke noget navn
@@ -323,10 +335,16 @@ stopper den samme diskussion hvert kvartal.
   lægge et billede på den åbne rute, og kun en curator kan fjerne det
   igen. Det er ikke længere kun familiens egen dømmekraft, der afgør,
   hvad der havner på det offentlige.
-- **Må en `contributor` overskrive familiens deklarationsfoto?** Hun kan
-  i dag (ét foto pr. vare+slags, nyt erstatter gammelt, ingen historik),
-  og `taget_af` skifter til hendes navn. Fotoet er dokumentationen bag en
-  bekræftelse, så det er en integritetsbeslutning, ikke kun en om adgang.
-- **Hvad sker der, hvis en bruger skal fjernes?** Der er ingen sletterute.
-  `Verdict.decided_by` og `ProductPhoto.taget_af` er navnestrenge, ikke
-  fremmednøgler, så de overlever brugeren.
+- **AFKLARET i 0.21.0 — må en `contributor` overskrive familiens
+  deklarationsfoto?** Nej. Flere billeder ligger side om side, intet
+  erstattes, og hun kan kun slette sit eget. Til gengæld er der nu ingen
+  øvre grænse for, hvor mange billeder en vare kan samle, og ingen
+  opbevaringsfrist. Ophobning er et ÅBENT spørgsmål: et deklarationsfoto
+  fylder 2–4 MB plus miniature, og appdata følger med i backuppen.
+- **Hvad sker der, hvis en bruger skal fjernes?** Der er stadig ingen
+  sletterute. `ProductPhoto.taget_af_user_id` har fået
+  `ondelete="SET NULL"` (0.21.0, migreret på Postgres), så hendes fotos
+  blokerer ikke længere sletningen — men **`taget_af` er en navnestreng
+  og bliver stående på billedet**, ligesom `Verdict.decided_by`. En
+  sletterute skal derfor rydde de strenge, ellers fjerner den ikke
+  personoplysningen, kun kontoen.

@@ -3,6 +3,36 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.21.0 — 23. august 2026
+
+**Billeder af varer, appen slet ikke kender, virker nu pålideligt**
+
+Fotograferer en hjælper en vare, Open Food Facts aldrig har hørt om,
+dukker den nu selv op i jeres søgning — før kunne den forsvinde
+sporløst. I kan altså finde den bagefter og give den et navn.
+
+**Et nyt billede erstatter ikke længere det gamle**
+
+Har opskriften måske ændret sig siden sidst, eller vil en hjælper bare
+tage et bedre billede? Nu ligger begge — det gamle forsvinder ikke, før
+en af jer aktivt sletter det. Der er ingen grænse for, hvor mange
+billeder en vare kan have.
+
+**Bekræftelsesskærmen viser nu både forsiden og deklarationen**
+
+Står I med en ukendt vare, kan I se begge billeder side om side, når I
+skal bekræfte den — og skrive varens navn ind med det samme, mens I
+kigger på forsidefotoet.
+
+**En hjælper kan nu selv slette et billede, hun selv har taget**
+
+Ramte hun forkert, eller kom der noget uvedkommende med i billedet, kan
+hun rette det uden at bede jer om det. Hun kan stadig ikke slette jeres
+egne billeder eller nogen andens — kun sine egne. I kan som altid
+slette et hvilket som helst billede. Billeder taget FØR denne
+opdatering kan kun I slette — appen huskede dengang ikke, hvem der
+havde taget dem.
+
 ## 0.20.0 — 23. august 2026
 
 **I kan nu invitere en person til at hjælpe med billeder**

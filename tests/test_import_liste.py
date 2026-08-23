@@ -20,13 +20,14 @@ os.environ.setdefault(
 )
 os.environ.setdefault("COOKIE_SECURE", "0")
 
+from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from sqlalchemy import func, select
 
 from app.cli import import_liste
 from app.db import SessionLocal, default_household, init_db
-from app.main import _gammel_liste_hint
-from app.models import ImportedProduct, Verdict
+from app.main import _gammel_liste_hint, app
+from app.models import ImportedProduct, Product, Verdict, now
 
 
 def _ark(tmp_path):
@@ -148,6 +149,45 @@ def test_hint_matcher_paa_navn_og_producent(tmp_path):
         assert any(h["navn"] == "Digestive" for h in hits)
         # ingenting til fælles
         assert _gammel_liste_hint(db, hh.id, "Piskefløde", "Arla") == []
+
+
+def test_scan_hintet_bruger_kun_offs_navn_ikke_familiens_eget(tmp_path):
+    """
+    `/api/scan` sendte en overgang `_visningsnavn(product)` (som lader
+    familiens eget `navn_manuelt` vinde) videre til _gammel_liste_hint().
+    Hintet er BEROLIGENDE ("bekræftet uden … — men tjek stadig
+    emballagen"), og den farlige retning er under-advarsel: et navn,
+    familien selv har fundet på til én vare, kan tilfældigt dele to ord
+    med en HELT ANDEN vare på det gamle ark. Kun Open Food Facts' eget,
+    ikke-familiestyrede navn må udløse hintet.
+    """
+    init_db()
+    import_liste(_ark(tmp_path))   # rækken "Marie kiks" / "Coop"
+
+    # product.name (OFF's eget, urelateret) matcher IKKE noget på arket —
+    # navn_manuelt (familiens eget) deler derimod to ord ("marie"+"kiks")
+    # med "Marie kiks"/Coop. Ingen brand, så der ikke sniger sig et
+    # brand-alene-match ind (se test_hint_matcher_paa_navn_og_producent).
+    ean = "5701234599901"
+    with SessionLocal() as db:
+        db.add(Product(
+            ean=ean, name="Hapithun i olie", navn_manuelt="Marie kiks med fuldkorn",
+            brand=None, ingredients_text="Hvedemel, vand, salt.", source="off",
+            fetched_at=now().replace(tzinfo=None),   # undgår et rigtigt OFF-kald
+        ))
+        db.commit()
+
+    c = TestClient(app)
+    r = c.get(f"/api/scan/{ean}")
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["product"]["name"] == "Marie kiks med fuldkorn", (
+        "visningsnavnet (product.name i svaret) skal stadig vise familiens eget navn"
+    )
+    assert d["gammel_liste"] == [], (
+        "hintet reagerede på familiens eget navn (navn_manuelt) — det må "
+        "kun Open Food Facts' eget navn kunne"
+    )
 
 
 def test_genimport_bevarer_stregkode_koblinger(tmp_path):

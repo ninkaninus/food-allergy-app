@@ -104,6 +104,14 @@ class Product(Base):
     __tablename__ = "product"
     ean: Mapped[str] = mapped_column(String(20), primary_key=True)
     name: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    # Familiens EGET navn (POST /api/products/{ean}/navn) — IKKE Open Food
+    # Facts' felt (det er `name` ovenfor, ODbL-afledt, se NOTICE.md).
+    # Additiv kolonne (se tilfoej_manglende_kolonner() i app/db.py). Sat,
+    # vinder den ALTID i visningen (se _visningsnavn() i app/main.py), og
+    # `_ensure_product()` rører den aldrig — ellers forsvandt et navn,
+    # familien selv skrev ind på en vare OFF ikke kendte, den dag OFF
+    # senere lærte varen at kende og udfyldte `name` med sit eget gæt.
+    navn_manuelt: Mapped[str | None] = mapped_column(String(400), nullable=True)
     brand: Mapped[str | None] = mapped_column(String(200), nullable=True)
     quantity: Mapped[str | None] = mapped_column(String(80), nullable=True)
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -118,6 +126,18 @@ class Product(Base):
     source: Mapped[str] = mapped_column(String(32), default="off")  # off | manual
     fetched_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now, onupdate=now)
+
+    @property
+    def visningsnavn(self) -> str | None:
+        """
+        Navnet et menneske skal se — familiens eget, hvis de har skrevet
+        ét, ellers Open Food Facts' eget. Reglen bor HER, ikke kun i en
+        hjælpefunktion i app/main.py (_visningsnavn()), fordi den før blev
+        glemt netop dér, hvor den ikke lå: `filter_products()` i
+        app/ingredients.py returnerede `p.name` rå, og en vare familien
+        selv har navngivet stod som »Uden navn« i »Fri for«-fanen.
+        """
+        return self.navn_manuelt or self.name
 
 
 class Verdict(Base):
@@ -301,13 +321,17 @@ class ProductPhoto(Base):
     databasen — så de følger med jeres backup af appdata, og databasen
     forbliver lille nok til at kopiere.
 
-    Ét billede pr. (vare, slags): et nyt foto erstatter det gamle. Vi
-    gemmer ikke historik; det ville vokse uden loft, og formålet er at
-    kunne læse etiketten igen, ikke at føre arkiv.
+    FLERE billeder pr. (vare, slags) siden 0.21.0 — den gamle
+    UniqueConstraint("household_id", "product_ean", "slags") er fjernet
+    (se _fjern_foto_unik_constraint() i app/db.py). En bidragyder skal
+    ALTID kunne lægge et nyt billede til: ingredienslisten kan være
+    ændret siden sidst, og det er ikke 1:1 mellem person og billede.
+    Intet slettes automatisk — en curator rydder op ved gennemgang.
+    `fil` er derfor et UNIKT filnavn pr. billede, ikke længere afledt
+    alene af (ean, slags); `GET .../foto/{slags}` giver det NYESTE.
     """
 
     __tablename__ = "product_photo"
-    __table_args__ = (UniqueConstraint("household_id", "product_ean", "slags"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     household_id: Mapped[int] = mapped_column(ForeignKey("household.id"), index=True)
@@ -317,6 +341,27 @@ class ProductPhoto(Base):
     bredde: Mapped[int | None] = mapped_column(nullable=True)
     hoejde: Mapped[int | None] = mapped_column(nullable=True)
     taget_af: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Nullable FK, additiv (se tilfoej_manglende_kolonner()). `taget_af`
+    # er kun en navnestreng — to hjælpere med samme fornavn kunne slette
+    # hinandens billeder. Ejerskab til sletning afgøres af DENNE kolonne,
+    # ikke af navnet. NULL for billeder taget før 0.21.0.
+    #
+    # `ondelete="SET NULL"`: fjernes en hjælper en dag, skal hendes fotos
+    # blive stående som dokumentation, ikke blokere for at brugeren kan
+    # slettes. Bemærk at det kun gør en FORSKEL, hvor fremmednøgler rent
+    # faktisk håndhæves: Postgres altid, SQLite kun med
+    # `PRAGMA foreign_keys=ON` (kun slået til i tests/conftest.py — IKKE
+    # i drift, se app/db.py). En allerede kørende SQLite-database i
+    # familiens drift rammes derfor slet ikke af dette (fraværet af
+    # håndhævelse betød, at en brugersletning ALDRIG blev blokeret der).
+    # En allerede kørende POSTGRES-database får derimod IKKE denne klausul
+    # af sig selv — `tilfoej_manglende_kolonner()` er kun additiv og
+    # ændrer ingen eksisterende fremmednøgle, og det er bevidst ikke
+    # rørt her (se CLAUDE.md om app/db.py's migreringskode). Kun en NY
+    # database (create_all() fra bunden) får klausulen med det samme.
+    taget_af_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("app_user.id", ondelete="SET NULL"), nullable=True
+    )
     taget_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
 
 

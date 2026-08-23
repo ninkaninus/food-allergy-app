@@ -89,6 +89,30 @@ textarea{min-height:150px;line-height:1.6;resize:vertical}
 .decl{padding:15px var(--pad) 19px;border-bottom:1px solid var(--rule)}
 .decl h3,.sec h3{font-size:11px;letter-spacing:.16em;text-transform:uppercase;
   color:var(--muted);margin:0 0 9px;font-weight:700}
+#fotoAlle{margin:14px 0}
+#fotoAlle>.hint{margin-top:10px}
+.fotoliste{list-style:none;margin:12px 0 0;padding:0}
+/* border-left er transparent i hviletilstand, ikke fraværende — ellers
+   flytter rækkens indhold 3px, når .aaben tilføjes/fjernes ved et tryk. */
+.fotoliste li{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:8px 0 8px 8px;
+  border-left:3px solid transparent}
+.fotoliste li.aaben{border-left-color:var(--unsafe)}
+.fotoliste .thumb{width:64px;height:64px;padding:0;border:1px solid var(--rule);
+  background:none;flex:none;cursor:zoom-in}
+.fotoliste .thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.fotoliste .info{flex:1;min-width:0;font-size:12.5px;color:var(--muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fotoliste .sletboks{display:flex;align-items:center;flex-wrap:wrap;gap:12px;flex:none;
+  margin-left:auto}
+.fotoliste .sletboks .btn{padding:6px 10px;font-size:13px}
+/* Bekræftelsestrinnet ("Ja, slet" / "Fortryd") er BEVIDST normal
+   .btn-størrelse, ikke den lille sletboks-knap ovenfor — den destruktive
+   handling må ikke være appens mindste trykflade. Spørgsmålsteksten
+   (.spoergsmaal) tvinges til sin egen linje (flex-basis 100%), så de to
+   knapper altid står side om side under den, uanset skærmbredde — uden
+   det kunne "Fortryd" ende et andet sted end der, "Slet" sad. */
+.fotoliste .sletboks .btn.stor{padding:13px 17px;font-size:15px}
+.fotoliste .sletboks .spoergsmaal{flex:1 0 100%;margin:0 0 2px}
 .decl .body{font-family:"JetBrains Mono",monospace;font-size:13.5px;line-height:1.85;
   word-break:break-word}
 mark{background:none;padding:0 1px}
@@ -218,6 +242,23 @@ footer a{color:var(--muted)}
            #ocrFile.onchange. Bruges også til en fejlbesked, hvis
            uploaden mislykkes. -->
       <p class="hint" id="fotoKvittering" style="padding:0 var(--pad) 16px" hidden></p>
+      <!-- Alle billeder af varen, ikke kun de(t) nyeste i #fotoRk ovenfor
+           — så en curator kan rydde op ved gennemgang, og en bidragyder
+           kan slette et billede, hun selv fortrød. Kun for indloggede
+           (USER, ikke en fremmed — serveren selv er åben, se
+           GET /api/products/{ean}/fotos), se hentAlleFotos(). Sletning er
+           uigenkaldelig — se kobleSletning() for den indlejrede
+           bekræftelse, IKKE en browserdialog.
+           Lukket som standard: galleriet skubbede før
+           #rows og #acts ~215px ned på en lille telefon, mens oprydning i
+           gamle billeder er aftenarbejde og ikke skal ligge i vejen i
+           butikken. Antallet står i overskriften (visAlleFotos()), så man
+           ved der er mere at se. -->
+      <details class="sec" id="fotoAlle" hidden>
+        <summary>Alle billeder (<span id="fotoAlleAntal">0</span>)</summary>
+        <p class="hint" id="fotoAlleHint"></p>
+        <ul class="fotoliste" id="fotoAlleListe"></ul>
+      </details>
       <ul class="rows" id="rows"></ul>
       <div class="decl">
         <h3>Deklaration, som motoren læste den</h3>
@@ -523,6 +564,16 @@ const BASIS = {manual:'bekræftet af et menneske', off_allergen_tag:'allergen-ta
   trace_unspecified:'etiketten advarer om spor, men siger ikke hvilke',
   ocr_fuzzy:'omtrentligt match i OCR-tekst — skal efterses',
   not_found_in_text:'ikke fundet i teksten'};
+// Delt af visFotos() (nyeste, #fotoRk) og visAlleFotos() (alle,
+// #fotoAlle) — én stavemåde, så de to lister aldrig kan komme til at
+// hedde noget forskelligt for samme slags. Slås altid op med `|| f.slags`
+// som fallback — en tredje slags, appen endnu ikke kender ordet for, skal
+// vise NOGET frem for "undefined".
+const SLAGS_NAVN = {front: 'Forside', deklaration: 'Deklaration'};
+// Sammensætningen "…fotoet"/"…foto" til sletningsspørgsmålet
+// (se sletSpoergsmaal()) — 'deklaration' får et fuge-s foran 'foto',
+// 'forside' gør ikke, så det er slået op i stedet for gættet i kode.
+const SLAGS_FOTO_ORD = {front: 'forsidefoto', deklaration: 'deklarationsfoto'};
 
 /* ---------- visninger ---------- */
 document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => {
@@ -570,6 +621,11 @@ function visSlab(r, forklaring){
   // ind« stadig under NÆSTE vares kort, og familien tror det er dens.
   $('#fotoKvittering').hidden = true;
   $('#fotoKvittering').textContent = '';
+  // Samme fejlklasse: uden oprydning her ville forrige vares billeder
+  // (og deres slet-knapper!) stå under den nye vares kort, mens den
+  // nye hentes.
+  $('#fotoAlle').hidden = true;
+  $('#fotoAlleListe').innerHTML = '';
   $('#confirmPanel').hidden = true;
   $('#verdict').hidden = false;
 }
@@ -693,6 +749,11 @@ function render(d){
   });
 
   visFotos(d);
+  // Kun for indloggede, og kun når der overhovedet ER billeder at
+  // administrere — se hentAlleFotos(). d.fotos er tom/fraværende for en
+  // vare, ingen nogensinde har fotograferet, og så er kaldet spildt.
+  if(USER && d.fotos && Object.keys(d.fotos).length) hentAlleFotos(d.ean);
+  else { $('#fotoAlle').hidden = true; $('#fotoAlleListe').innerHTML = ''; }
 
   $('#rows').innerHTML = (d.allergens||[]).map(a => `
     <li><span class="dot ${a.state}"></span>
@@ -784,7 +845,6 @@ $('#camBtn').onclick = async () => {
 /* ---------- billeder ---------- */
 function visFotos(d){
   const f = d.fotos || {};
-  const navne = {front: 'Forside', deklaration: 'Deklaration'};
   const ordre = ['front', 'deklaration'].filter(k => f[k]);
   const gl = $('#fotoRk');
   if(!ordre.length){ gl.innerHTML = ''; gl.hidden = true; return; }
@@ -794,10 +854,185 @@ function visFotos(d){
   gl.innerHTML = ordre.map(k => `
     <button class="foto" data-foto="${k}" data-url="${esc(f[k].url)}"
       title="Taget ${danskDato(f[k].taget_at, true)}">
-      <img src="${esc(f[k].mini_url || f[k].url)}" alt="${navne[k]}" loading="lazy">
-      <span class="lab">${navne[k]}${f[k].taget_af ? ' · ' + esc(f[k].taget_af) : ''}</span></button>`).join('');
+      <img src="${esc(f[k].mini_url || f[k].url)}" alt="${esc(SLAGS_NAVN[k] || k)}" loading="lazy">
+      <span class="lab">${esc(SLAGS_NAVN[k] || k)}${f[k].taget_af ? ' · ' + esc(f[k].taget_af) : ''}</span></button>`).join('');
   gl.querySelectorAll('.foto').forEach(b => b.onclick = () => aabnLup(
-    b.dataset.url, `${navne[b.dataset.foto]} · ${danskDato(f[b.dataset.foto].taget_at, true)}`));
+    b.dataset.url,
+    `${SLAGS_NAVN[b.dataset.foto] || b.dataset.foto} · ${danskDato(f[b.dataset.foto].taget_at, true)}`));
+}
+
+// Alle billeder af varen, til gennemgang og sletning — se #fotoAlle.
+// GET /api/products/{ean}/fotos er selv ÅBEN, som resten af fotoruterne
+// — en anonym KUNNE læse listen. Frontend viser den alligevel kun for
+// indloggede (USER), her og i render()'s kald til denne funktion: en
+// fremmed kan under ingen omstændigheder slette noget (serveren kræver
+// login på selve DELETE-kaldet), så et galleri fyldt med knapper, hun
+// alligevel bare ville få 401 på, er ren støj — ikke en sikkerhedsgrænse.
+let alleFotosNr = 0;
+async function hentAlleFotos(ean){
+  const mit = ++alleFotosNr;
+  if(!USER){ $('#fotoAlle').hidden = true; $('#fotoAlleListe').innerHTML = ''; return; }
+  // I ved der er mindst ét billede — render() kalder først hentAlleFotos()
+  // når d.fotos ikke er tom — så en blank boks, mens den henter, ville
+  // se ud som om billederne var væk.
+  $('#fotoAlle').hidden = false;
+  $('#fotoAlleListe').innerHTML = '<li class="none">Henter billeder …</li>';
+  let r, d;
+  try {
+    r = await fetch(`/api/products/${ean}/fotos`);
+    d = await r.json();
+  } catch {
+    if(mit !== alleFotosNr || LAST?.ean !== ean) return;
+    $('#fotoAlleListe').innerHTML = '<li class="none">Billederne kunne ikke hentes. Prøv igen.</li>';
+    return;
+  }
+  // Et nyere opslag (en anden vare, eller et login/logout imens) har
+  // overhalet dette — vis det ikke oveni den forkerte vares kort.
+  if(mit !== alleFotosNr || LAST?.ean !== ean) return;
+  if(!r.ok){
+    $('#fotoAlleListe').innerHTML = '<li class="none">Billederne kunne ikke hentes. Prøv igen.</li>';
+    return;
+  }
+  // Samme svar rummer også det NYESTE pr. slags — brugt her efter en
+  // sletning, så #fotoRk kan følge med uden at hele varen (og dermed
+  // dommen) skal genindlæses, se kobleSletning().
+  if(d.nyeste){ LAST.fotos = d.nyeste; visFotos(LAST); }
+  visAlleFotos(ean, d.alle || {});
+}
+
+function visAlleFotos(ean, alle){
+  const raekker = ['front', 'deklaration'].flatMap(slags =>
+    (alle[slags] || []).map(f => ({...f, slags})));
+  const boks = $('#fotoAlle');
+  if(!raekker.length){ boks.hidden = true; $('#fotoAlleListe').innerHTML = ''; return; }
+  boks.hidden = false;
+  $('#fotoAlleAntal').textContent = raekker.length;
+  // Ingen rollenavne — bare hvad man selv kan gøre her.
+  $('#fotoAlleHint').textContent = KAN_BEKRAEFTE
+    ? 'I kan slette alle billeder. Det kan ikke fortrydes.'
+    : 'Du kan slette de billeder, du selv har taget.';
+  $('#fotoAlleListe').innerHTML = raekker.map(f => {
+    const naar = danskDato(f.taget_at, true);
+    const hvem = f.taget_af ? `${esc(f.taget_af)}, ${naar}` : naar;
+    return `<li data-id="${f.id}" data-slags="${f.slags}" data-taget-at="${esc(f.taget_at)}"
+        data-taget-af="${f.taget_af ? esc(f.taget_af) : ''}">
+      <button type="button" class="thumb"
+        aria-label="Vis ${esc(SLAGS_NAVN[f.slags] || f.slags)} i fuld størrelse">
+        <img src="${esc(f.mini_url)}" alt="" loading="lazy">
+      </button>
+      <span class="info">${esc(SLAGS_NAVN[f.slags] || f.slags)} · ${hvem}</span>
+      <span class="sletboks">${f.kan_slette
+        ? '<button class="btn ghost" type="button">Slet</button>' : ''}</span>
+    </li>`;
+  }).join('');
+  const rows = [...$('#fotoAlleListe').querySelectorAll('li')];
+  rows.forEach((li, i) => {
+    const f = raekker[i];
+    // Samme trykflade og samme forstørrelse, #fotoRk allerede bruger —
+    // en 64px miniature er ikke nok til at skelne to deklarationsfotos
+    // taget samme dag fra hinanden, men det forstørrede billede er.
+    li.querySelector('.thumb').onclick = () => aabnLup(
+      f.url, `${SLAGS_NAVN[f.slags] || f.slags} · ${danskDato(f.taget_at, true)}`);
+    kobleSletning(li, ean);
+  });
+}
+
+// Sletningsspørgsmålet, navngivet PRÆCIS til det billede, rækken er om —
+// to deklarationsfotos taget samme dag af samme person er ordret
+// identiske i en 64px miniature. Er billedet en ANDENS (ikke den, der
+// sidder med telefonen nu), navngives personen; er det ens eget, eller
+// er afsenderen ikke kendt (foto fra før 0.20.0), ingen navn.
+function sletSpoergsmaal(li){
+  const ord = SLAGS_FOTO_ORD[li.dataset.slags] || `${li.dataset.slags}foto`;
+  const dato = danskDato(li.dataset.tagetAt, true);
+  const afsender = li.dataset.tagetAf;
+  const navn = (afsender && afsender !== USER?.name) ? `${afsender}s ${ord}` : `${ord}et`;
+  return `Slette ${navn} fra ${dato}? Det kan ikke fortrydes.`;
+}
+
+// Lukker en ÅBEN sletbekræftelse uden at slette — brugt af "Fortryd" og
+// til at lukke en ANDEN rækkes bekræftelse, når en ny åbnes (se
+// kobleSletning()), så der aldrig er to "Ja, slet"-knapper klar til at
+// fyre på samme tid.
+function lukSletBekraeftelse(li, ean){
+  li.classList.remove('aaben');
+  const boks = li.querySelector('.sletboks');
+  if(boks) boks.innerHTML = '<button class="btn ghost" type="button">Slet</button>';
+  kobleSletning(li, ean);
+}
+
+// Sletning er uigenkaldelig og fjerner filerne fra disken (se
+// slet_foto() i app/main.py) — derfor INGEN browserdialog (confirm()),
+// men en bekræftelse indlejret i selve rækken (sletSpoergsmaal()), og
+// rækken markeres i venstre kant (.aaben), så den er til at finde igen,
+// hvis man kigger væk. `.sletboks` ligger sidst i en flex-række (se CSS),
+// og spørgsmålsteksten tvinges til sin egen linje (flex-basis 100%) —
+// "Ja, slet" og "Fortryd" står derfor ALTID side om side på linjen under,
+// med "Fortryd" sidst/til højre, i samme hjørne som den oprindelige
+// "Slet"-knap sad. Et hastigt dobbelttryk med tommelen i Netto, samme
+// sted på skærmen, rammer altså "Fortryd" igen — den destruktive knap
+// ("Ja, slet") sidder et andet sted og har normal .btn-størrelse (CSS),
+// ikke sletboksens lille knapstørrelse.
+function kobleSletning(li, ean){
+  const knap = li.querySelector('.sletboks button');
+  if(!knap) return;
+  const boks = li.querySelector('.sletboks');
+  knap.onclick = () => {
+    $('#fotoAlleListe').querySelectorAll('li.aaben').forEach(anden => {
+      if(anden !== li) lukSletBekraeftelse(anden, ean);
+    });
+    li.classList.add('aaben');
+    boks.innerHTML = `<span class="hint spoergsmaal" style="margin:0">${esc(sletSpoergsmaal(li))}</span>
+      <button class="btn stor" type="button" data-ja>Ja, slet</button>
+      <button class="btn ghost stor" type="button" data-nej>Fortryd</button>`;
+    boks.querySelector('[data-nej]').onclick = () => lukSletBekraeftelse(li, ean);
+    boks.querySelector('[data-ja]').onclick = async () => {
+      const ja = boks.querySelector('[data-ja]');
+      const nej = boks.querySelector('[data-nej]');
+      boks.querySelector('.foto-fejl')?.remove();
+      ja.disabled = true;
+      nej.disabled = true;
+      let r;
+      try {
+        r = await fetch(`/api/products/${ean}/foto/${li.dataset.slags}/${li.dataset.id}`,
+          {method: 'DELETE'});
+      } catch {
+        // En fejl må ALDRIG ligne "der skete ikke noget" (se lookup()) —
+        // to knapper, deaktiveret for altid uden svar, er netop det: en
+        // død række, ingen vej videre.
+        boks.insertAdjacentHTML('beforeend',
+          '<span class="err foto-fejl" style="flex-basis:100%">'
+          + 'Ingen forbindelse til serveren. Billedet blev ikke slettet.</span>');
+        ja.disabled = false;
+        nej.disabled = false;
+        return;
+      }
+      if(r.status === 401){
+        await refreshAuth();
+        // Uden session ville hver resterende knap i galleriet bare give
+        // 401 igen — vis det ikke som et galleri af døde knapper.
+        $('#fotoAlle').hidden = true;
+        $('#fotoAlleListe').innerHTML = '';
+        $('#scanHint').textContent = 'Du er blevet logget ud. Log ind igen under Indstillinger.';
+        return;
+      }
+      if(!r.ok){
+        boks.insertAdjacentHTML('beforeend',
+          '<span class="err foto-fejl" style="flex-basis:100%">'
+          + 'Billedet blev ikke slettet. Prøv igen.</span>');
+        ja.disabled = false;
+        nej.disabled = false;
+        return;
+      }
+      li.remove();
+      $('#fotoKvittering').hidden = false;
+      $('#fotoKvittering').textContent = 'Billedet er slettet.';
+      // Kun de to fotolister, ikke hele varen — lookup() nulstiller
+      // dommen til grå og hopper til toppen, mens den henter igen, og en
+      // fejl DÉR ville se ud som om selve sletningen var mislykkedes.
+      if(LAST?.ean === ean) hentAlleFotos(ean);
+    };
+  };
 }
 
 function aabnLup(url, tekst){
@@ -840,6 +1075,7 @@ async function gemFoto(fil, slags){
   const d = await r.json();
   LAST.fotos = d.fotos;
   visFotos(LAST);
+  hentAlleFotos(LAST.ean);   // det nye billede skal kunne ses (og slettes) med det samme
   return {ok:true, status:200, data:d};
 }
 
@@ -971,19 +1207,46 @@ function openConfirm(){
   $('#ocrStatus').hidden = true;
   $('#ocrStatus').textContent = '';
 
-  // Vare og — hvis der findes et deklarationsfoto — hvem der tog det,
-  // hvornår, og et link der åbner billedet i fuld opløsning. I
-  // bekræfter ud fra billedet og skal kunne se det uden at scrolle op
-  // til miniaturen. taget_af sendes kun med til indloggede, se
-  // _foto_svar(); uden navn (foto uploadet før 0.20.0) nævnes kun datoen.
+  // Vare og — hvis der findes et forside- og/eller deklarationsfoto —
+  // hvem der tog det, hvornår, og et link der åbner billedet i fuld
+  // opløsning. I bekræfter ud fra billedet og skal kunne se BEGGE uden
+  // at scrolle op til miniaturerne, så en ukendt vare kan navngives ud
+  // fra forsiden, mens deklarationen bekræftes. taget_af sendes kun med
+  // til indloggede, se _foto_svar(); uden navn (foto uploadet før
+  // 0.20.0) nævnes kun datoen.
+  const front = LAST?.fotos?.front;
   const dekl = LAST?.fotos?.deklaration;
-  const vareLinje = esc(LAST?.product?.name || 'Ukendt vare') + ' — ' + esc(LAST?.ean || '');
-  const fotoLinje = dekl
-    ? (dekl.taget_af ? `Foto taget af <b>${esc(dekl.taget_af)}</b>, ${danskDato(dekl.taget_at)}`
-                     : `Foto fra ${danskDato(dekl.taget_at)}`)
-      + ` · <button type="button" class="link" id="seFotoLink">se billedet</button>`
+  const kendtNavn = LAST?.product?.name || '';
+  const vareLinje = esc(kendtNavn || 'Ukendt vare') + ' — ' + esc(LAST?.ean || '');
+  const fotoLinje = (foto, id, tekst) => foto
+    ? (foto.taget_af ? `${tekst} taget af <b>${esc(foto.taget_af)}</b>, ${danskDato(foto.taget_at)}`
+                     : `${tekst} fra ${danskDato(foto.taget_at)}`)
+      + ` · <button type="button" class="link" id="${id}">se billedet</button>`
     : '';
-  $('#confirmVare').innerHTML = vareLinje + (fotoLinje ? `<br>${fotoLinje}` : '');
+  // Uden navn (typisk en stregkode Open Food Facts ikke kender) skal I
+  // kunne skrive navnet ind her, mens I sidder med forsidefotoet foran
+  // jer — se saveConfirm() og POST /api/products/{ean}/navn. Er navnet
+  // FAMILIENS EGET (navn_er_vores), skal en tastefejl kunne rettes —
+  // ellers er den permanent, i evighed, fra sekundet navnet blev gemt.
+  // OFF's eget navn kan derimod ikke overskrives via feltet: det er
+  // ikke familiens at rette, kun deres egen gæt om en ukendt vare.
+  const navnErVores = !!LAST?.product?.navn_er_vores;
+  // Parentesen peger kun på forsidefotoet, når der RENT FAKTISK er ét.
+  const navnLabel = kendtNavn ? 'Ret varens navn'
+    : 'Varens navn' + (front ? ' (se forsidefotoet)' : '');
+  const navnFelt = (!kendtNavn || navnErVores) ? `<label style="display:block;margin-top:8px">
+      ${navnLabel}
+      <input id="confirmNavn" type="text" placeholder="fx Skyr med jordbær"
+        aria-label="Varens navn" value="${esc(navnErVores ? kendtNavn : '')}"
+        style="display:block;width:100%;margin-top:4px">
+    </label>` : '';
+  $('#confirmVare').innerHTML = vareLinje
+    + [fotoLinje(front, 'seFrontLink', 'Forsidefoto'),
+       fotoLinje(dekl, 'seFotoLink', 'Deklarationsfoto')]
+        .filter(Boolean).map(l => `<br>${l}`).join('')
+    + navnFelt;
+  if(front) $('#seFrontLink').onclick = () =>
+    aabnLup(front.url, `Forside · ${danskDato(front.taget_at, true)}`);
   if(dekl) $('#seFotoLink').onclick = () =>
     aabnLup(dekl.url, `Deklaration · ${danskDato(dekl.taget_at, true)}`);
   // Forudfyld kun, når motoren faktisk har haft en ingrediensliste at
@@ -1089,6 +1352,26 @@ $('#alleFri').onclick = () => {
 $('#confirmBtn').onclick = openConfirm;
 $('#cancelConfirm').onclick = () => { $('#confirmPanel').hidden = true; };
 
+// Delt af navnefeltet og /confirm herunder — begge er skrivninger, kun
+// familien må lave, og begge kan derfor ramme enten en udløbet session
+// (401) eller en bidragyder uden lov (403). De to må IKKE vise samme
+// tekst: en 403 betyder "intet blev gemt, men du er stadig logget ind",
+// en 401 betyder "log ind igen". Før havde navnefeltet slet ikke denne
+// skelnen og viste bare den rå statuskode.
+async function bekraeftelsesfejl(status, hvad){
+  if(status === 401){
+    await refreshAuth();
+    // Samme ord som resten af appen (se kobleSletning()) — "session" er
+    // et udviklerord, og denne sætning siger også hvor man går hen.
+    return 'Du er blevet logget ud. Log ind igen under Indstillinger.';
+  }
+  if(status === 403){
+    await refreshAuth();
+    return 'Din konto kan sende billeder ind, men ikke bekræfte varer. Ingenting blev gemt.';
+  }
+  return `Kunne ikke ${hvad} (${status}).`;
+}
+
 $('#saveConfirm').onclick = async () => {
   // Varen på KORTET, ikke i indtastningsfeltet. Feltet kan stå på en
   // anden stregkode end den, kortet viser — fx efter et mislykket
@@ -1102,10 +1385,35 @@ $('#saveConfirm').onclick = async () => {
   const alle = JSON.parse($('#confirmChips').dataset.state || '{}');
   const verdicts = Object.fromEntries(Object.entries(alle).filter(([, v]) => v));
   const tekst = $('#declEdit').value.trim() || null;
-  if(!Object.keys(verdicts).length && !tekst){
+  // #confirmNavn findes kun, når varen IKKE har et navn endnu — se
+  // openConfirm(). Typisk en stregkode Open Food Facts ikke kender, hvor
+  // I sidder med forsidefotoet og kan læse navnet af det.
+  const navnFelt = $('#confirmNavn');
+  const navn = navnFelt ? navnFelt.value.trim() : '';
+  if(!Object.keys(verdicts).length && !tekst && !navn){
     $('#confirmErr').hidden = false;
     $('#confirmErr').textContent =
-      'Der er ikke noget at gemme endnu — tast deklarationen ind, eller tryk dig igennem allergenerne.';
+      'Der er ikke noget at gemme endnu — tast deklarationen ind, skriv varens navn, eller tryk dig igennem allergenerne.';
+    return;
+  }
+  // Navnet er BEVIDST ikke en del af /confirm herunder: at navngive en
+  // vare afgør ingen dom, og bekræftelsesruten hører til allergen-
+  // domænet (se POST /api/products/{ean}/navn i app/main.py).
+  if(navn){
+    const rn = await fetch(`/api/products/${ean}/navn`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name: navn})});
+    if(!rn.ok){
+      $('#confirmErr').hidden = false;
+      $('#confirmErr').textContent = await bekraeftelsesfejl(rn.status, 'gemme navnet');
+      return;
+    }
+  }
+  if(!Object.keys(verdicts).length && !tekst){
+    // Kun navnet skulle gemmes, og det skete ovenfor — resten af
+    // funktionen handler om domme, og der er ingen at gemme.
+    $('#confirmPanel').hidden = true;
+    lookup(ean);
     return;
   }
   const body = {verdicts, ingredients_text: tekst};
@@ -1114,22 +1422,9 @@ $('#saveConfirm').onclick = async () => {
   // 401 (ingen session) og 403 (logget ind, men uden lov) er ikke det
   // samme fejl — en bidragyder, hvis "Gem dom" af en eller anden vej
   // blev trykket, må ikke få at vide at sin session er udløbet.
-  if(r.status === 401){
-    $('#confirmErr').hidden = false;
-    $('#confirmErr').textContent = 'Din session er udløbet. Log ind igen.';
-    await refreshAuth();
-    return;
-  }
-  if(r.status === 403){
-    $('#confirmErr').hidden = false;
-    $('#confirmErr').textContent =
-      'Din konto kan sende billeder ind, men ikke bekræfte varer. Ingenting blev gemt.';
-    await refreshAuth();
-    return;
-  }
   if(!r.ok){
     $('#confirmErr').hidden = false;
-    $('#confirmErr').textContent = 'Kunne ikke gemme ('+r.status+').';
+    $('#confirmErr').textContent = await bekraeftelsesfejl(r.status, 'gemme');
     return;
   }
   $('#confirmPanel').hidden = true;

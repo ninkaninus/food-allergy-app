@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from .matcher import Ruleset
-from .models import Allergen, Base, Household, Profile, ProfileAllergen
+from .models import Allergen, Base, Household, Profile, ProfileAllergen, ProductPhoto
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 RULES_PATH = Path(os.getenv("RULES_PATH", "/app/data/allergens.yaml"))
@@ -69,6 +69,229 @@ def tilfoej_manglende_kolonner() -> None:
                     )
 
 
+# Arbejdsnavnet, den nye fototabel bygges under, indtil den er færdig og
+# kan overtage det rigtige navn. Se _byg_fototabellen_om().
+_FOTO_SKRABETABEL = "product_photo_ny"
+
+
+def _vagt_mod_afbrudt_fotoombygning() -> None:
+    """
+    Køres FØR create_all(). Nægter at starte, hvis en tidligere
+    ombygning af `product_photo` er endt halvvejs.
+
+    Vagten findes, fordi det SKETE. Den første udgave af migreringen
+    herunder omdøbte tabellen til `product_photo_gammel` og byggede så
+    en ny — men SQLite flytter ikke indeksene med ved en omdøbning, så
+    `CREATE INDEX ix_product_photo_household_id` fejlede på et
+    navnesammenstød. pysqlite kører DDL uden for transaktionen, så
+    omdøbningen stod allerede fast: familiens fotos lå i
+    `product_photo_gammel`, og ved siden af stod en tom `product_photo`.
+
+    Det farlige var ikke nedbruddet. Det farlige var ANDEN opstart:
+    `create_all()` så en `product_photo`, der fandtes, migreringen fandt
+    ingen begrænsning på den tomme tabel og gik hjem, healthchecket blev
+    grønt, og appen så ud, som om familien aldrig havde taget et
+    billede. Et rollback til forrige version hjalp heller ikke.
+
+    Ombygningen er atomar nu, så den her burde aldrig fyre. Gør den det,
+    er rækkerne der stadig — og en opstart, der stopper med at sige
+    hvor, er uendeligt meget bedre end en, der starter og tier.
+    """
+    insp = inspect(engine)
+    for rest in ("product_photo_gammel", _FOTO_SKRABETABEL):
+        if not insp.has_table(rest):
+            continue
+        with engine.connect() as con:
+            antal = con.execute(text(f'SELECT count(*) FROM "{rest}"')).scalar() or 0
+        raise RuntimeError(
+            f'Tabellen "{rest}" ligger tilbage efter en afbrudt ombygning af '
+            f"product_photo og indeholder {antal} fotorække(r). Appen starter "
+            "ikke, for de rækker ville ellers se ud, som om de aldrig havde "
+            "eksisteret. Kopiér dem over i product_photo og drop "
+            f'"{rest}" — så starter den igen.'
+        )
+
+
+def _byg_fototabellen_om() -> None:
+    """
+    Bygger `product_photo` om uden den unikke begrænsning. SQLite har
+    ingen ALTER TABLE ... DROP CONSTRAINT: begrænsningen står i selve
+    CREATE TABLE, og eneste vej er at bygge tabellen om.
+
+    To ting skal være rigtige, og begge var forkerte i første forsøg:
+
+    **Rækkefølgen.** SQLite flytter ikke indeks med ved en omdøbning.
+    Omdøber man den gamle tabel først, bliver `ix_product_photo_*`
+    siddende på den, og den nye tabels indeks kan ikke oprettes. Derfor
+    bygges den nye tabel under et arbejdsnavn, og den gamle DROPPES —
+    hvilket frigør indeksnavnene — før omdøbningen.
+
+    **Atomariteten.** pysqlite committer DDL uden for transaktionen i
+    sin standardtilstand, så et nedbrud midtvejs blev permanent. SQLite
+    kan i virkeligheden godt rulle DDL tilbage; det er driverens
+    autocommit, der er i vejen. Derfor køres hele ombygningen på en rå
+    forbindelse med `isolation_level = None` og et eksplicit BEGIN.
+    Fejler noget som helst undervejs, er databasen bagefter præcis som
+    før — med rækker og indeks i behold.
+
+    Rækkerne tælles før og efter og sammenlignes inde i transaktionen.
+    Den forrige udgave efterprøvede kun, at begrænsningen var væk, og
+    det er den jo også på en tom tabel.
+    """
+    from sqlalchemy import MetaData
+    from sqlalchemy.schema import CreateIndex, CreateTable
+
+    tabel = ProductPhoto.__table__
+    kolonner = ", ".join(f'"{c.name}"' for c in tabel.columns)
+    # Kopiér HELE metadataen, ikke kun fototabellen. Kopieres den alene,
+    # kan SQLAlchemy ikke slå `household`, `product` og `app_user` op og
+    # dropper de tre fremmednøgler på gulvet — og FK'en på product_ean er
+    # netop den, der forhindrer en fotorække uden vare.
+    md = MetaData()
+    for t in Base.metadata.tables.values():
+        t.to_metadata(md)
+    skrab = md.tables["product_photo"].to_metadata(md, name=_FOTO_SKRABETABEL)
+    skrab.indexes.clear()       # indeksene får deres rigtige navne til sidst
+
+    raa = engine.raw_connection()
+    try:
+        dbapi = raa.driver_connection
+        forrige = dbapi.isolation_level
+        dbapi.isolation_level = None        # vi styrer selv transaktionen
+        cur = dbapi.cursor()
+        try:
+            cur.execute("BEGIN")
+            foer = cur.execute("SELECT count(*) FROM product_photo").fetchone()[0]
+            cur.execute(str(CreateTable(skrab).compile(engine)))
+            cur.execute(
+                f"INSERT INTO {_FOTO_SKRABETABEL} ({kolonner}) "
+                f"SELECT {kolonner} FROM product_photo"
+            )
+            cur.execute("DROP TABLE product_photo")
+            cur.execute(f"ALTER TABLE {_FOTO_SKRABETABEL} RENAME TO product_photo")
+            for ix in tabel.indexes:
+                cur.execute(str(CreateIndex(ix).compile(engine)))
+            efter = cur.execute("SELECT count(*) FROM product_photo").fetchone()[0]
+            if efter != foer:
+                raise RuntimeError(
+                    f"{foer - efter} af {foer} fotorække(r) forsvandt under "
+                    "ombygningen af product_photo. Ruller tilbage."
+                )
+            cur.execute("COMMIT")
+        except Exception:
+            cur.execute("ROLLBACK")
+            raise
+        finally:
+            dbapi.isolation_level = forrige
+    finally:
+        raa.close()
+
+
+def _fjern_foto_unik_constraint() -> None:
+    """
+    Fjerner den gamle "ét foto pr. (vare, slags)"-begrænsning fra 0.21.0.
+
+    `UniqueConstraint("household_id", "product_ean", "slags")` forhindrede
+    netop det, en bidragyder har mest brug for: at lægge et NYT billede
+    til, uden at det gamle forsvinder. `create_all()` opretter kun
+    tabeller, der mangler helt — en fjernet begrænsning på en tabel, der
+    allerede findes, rører den aldrig. Idempotent: køres ved hver
+    opstart, men rører kun databasen, hvis begrænsningen stadig findes.
+    """
+    insp = inspect(engine)
+    if not insp.has_table("product_photo"):
+        return
+    kolonner = {"household_id", "product_ean", "slags"}
+    # Slå den OP, gæt ikke på navnet. En tidligere udgave hardkodede
+    # Postgres' navnekonvention (<tabel>_<kolonner>_key). Ramte den ved
+    # siden af, var DROP ... IF EXISTS en tavs no-op: begrænsningen blev
+    # siddende, opstarten lykkedes, og først den anden bidragyder, der
+    # uploadede til samme vare, fik en 500. Inspektøren kender det
+    # rigtige navn på begge databaser.
+    fundet = [
+        u for u in insp.get_unique_constraints("product_photo")
+        if set(u["column_names"]) == kolonner
+    ]
+    if not fundet:
+        return
+    if engine.dialect.name == "sqlite":
+        _byg_fototabellen_om()
+    else:
+        with engine.begin() as con:
+            for u in fundet:
+                if not u.get("name"):
+                    continue        # unavngivet: kan ikke droppes ved navn
+                con.execute(text(
+                    f'ALTER TABLE product_photo DROP CONSTRAINT IF EXISTS "{u["name"]}"'
+                ))
+
+    # Efterprøv. Blev den siddende, er 0.21.0's hele formål ude af drift,
+    # og den anden upload på samme vare ville give 500. Så er et fejlet
+    # deploy med automatisk rollback det rigtige udfald — ikke en app,
+    # der starter og lyver om, hvad den kan.
+    if any(set(u["column_names"]) == kolonner
+           for u in inspect(engine).get_unique_constraints("product_photo")):
+        raise RuntimeError(
+            "product_photo har stadig sin unikke begrænsning på "
+            "(household_id, product_ean, slags) efter migreringen. "
+            "Flere billeder pr. vare ville fejle i drift."
+        )
+
+
+def _foto_bruger_fk_faar_ondelete() -> None:
+    """
+    Giver `product_photo.taget_af_user_id` sin `ON DELETE SET NULL`.
+
+    Fjernes en hjælper en dag, skal hendes billeder blive stående uden
+    hendes bruger-id — ikke blokere sletningen af hende. Modellen siger
+    det (app/models.py), men en fremmednøgle på en tabel, der allerede
+    findes, laves aldrig om af `create_all()`.
+
+    **Kun Postgres.** En ny database får reglen med fra fødslen, og en
+    gammel SQLite-base får den gratis, fordi hele tabellen alligevel
+    bygges om for den unikke begrænsning lige ovenfor. Tilbage står den
+    kørende Postgres — og uden det her ville testen af sletningen bevise
+    noget, der kun gælder på udviklermaskinen. Det er den slags falske
+    grønt, der kostede en fejlrettelse tidligere i samme udgivelse.
+
+    Navnet slås op, det gættes ikke: en `DROP CONSTRAINT IF EXISTS` på et
+    forkert gættet navn er en tavs no-op.
+    """
+    if engine.dialect.name == "sqlite":
+        return
+    insp = inspect(engine)
+    if not insp.has_table("product_photo"):
+        return
+    for fk in insp.get_foreign_keys("product_photo"):
+        if fk["constrained_columns"] != ["taget_af_user_id"]:
+            continue
+        if (fk.get("options") or {}).get("ondelete", "").upper() == "SET NULL":
+            return                      # allerede på plads — no-op ved næste opstart
+        navn = fk.get("name")
+        if not navn:
+            return                      # unavngivet: kan ikke ændres ved navn
+        with engine.begin() as con:
+            con.execute(text(f'ALTER TABLE product_photo DROP CONSTRAINT "{navn}"'))
+            con.execute(text(
+                f'ALTER TABLE product_photo ADD CONSTRAINT "{navn}" '
+                "FOREIGN KEY (taget_af_user_id) REFERENCES app_user (id) "
+                "ON DELETE SET NULL"
+            ))
+        break
+
+    # Efterprøv. Tog ændringen ikke, ville en fremtidig sletning af en
+    # bruger fejle med en fremmednøglefejl i stedet for at give slip —
+    # og det ville først vise sig den dag, nogen faktisk skulle fjernes.
+    for fk in inspect(engine).get_foreign_keys("product_photo"):
+        if fk["constrained_columns"] == ["taget_af_user_id"]:
+            if (fk.get("options") or {}).get("ondelete", "").upper() != "SET NULL":
+                raise RuntimeError(
+                    "product_photo.taget_af_user_id mangler stadig ON DELETE "
+                    "SET NULL efter migreringen. En bruger ville ikke kunne "
+                    "fjernes, sålænge hun har taget et billede."
+                )
+
+
 def _drop_scan_tabellen() -> None:
     """
     Bevidst, destruktiv engangshandling — ikke en fejl, hvis du støder på
@@ -95,8 +318,11 @@ def _drop_scan_tabellen() -> None:
 
 
 def init_db() -> None:
+    _vagt_mod_afbrudt_fotoombygning()
     Base.metadata.create_all(engine)
     tilfoej_manglende_kolonner()
+    _fjern_foto_unik_constraint()
+    _foto_bruger_fk_faar_ondelete()
     _drop_scan_tabellen()
     with SessionLocal() as db:
         # Allergener synkroniseres fra YAML ved hver opstart.

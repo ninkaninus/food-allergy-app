@@ -4,6 +4,7 @@ import datetime as dt
 import io
 import os
 import re
+import secrets
 from dataclasses import asdict
 from pathlib import Path
 
@@ -12,7 +13,7 @@ import httpx
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -113,6 +114,21 @@ def _ord_maengde(*tekster: str | None) -> set[str]:
             if len(w) >= 4:
                 ud.add(fold(w))
     return ud
+
+
+def _visningsnavn(p: Product) -> str | None:
+    """
+    Navnet, et menneske skal se — familiens eget (`navn_manuelt`), hvis de
+    har skrevet ét, ellers Open Food Facts' (`name`). Bruges alle steder,
+    en vares navn vises: `navn_manuelt` skal vinde for evigt, også efter
+    at OFF senere lærer varen at kende og udfylder `name` (se
+    _ensure_product(), som aldrig rører `navn_manuelt`).
+
+    Selve reglen ligger på modellen (`Product.visningsnavn`), så den ikke
+    kan glemmes igen ét sted, mens den huskes et andet — se
+    `app/ingredients.py:filter_products()`, som brugte `p.name` rå.
+    """
+    return p.visningsnavn
 
 
 def _gammel_liste_hint(
@@ -537,10 +553,25 @@ async def scan(
         "found": True,
         "source": source,
         "result": result,
-        "gammel_liste": _gammel_liste_hint(db, hh.id, product.name, product.brand, ean),
+        # BEVIDST product.name her, IKKE _visningsnavn(product)/navn_manuelt.
+        # Hintet er BEROLIGENDE ("bekræftet uden mælkeprotein — men tjek
+        # stadig emballagen"), og den farlige retning er under-advarsel,
+        # ikke over-advarsel. `_match_liste` kræver kun to fælles ord — et
+        # navn, familien selv har fundet på, kunne tilfældigt dele to ord
+        # med en helt anden vare på det gamle ark og fremkalde et falsk
+        # beroligende hint. OFF's eget navn er ikke noget familien styrer.
+        # (soeg()s brug af `_visningsnavn` til at MATCHE listen er en
+        # anden ting — se kommentaren der — og er urørt.)
+        "gammel_liste": _gammel_liste_hint(
+            db, hh.id, product.name, product.brand, ean
+        ),
         "fotos": _foto_svar(db, hh.id, ean, bruger),
         "product": {
-            "name": product.name,
+            "name": _visningsnavn(product),
+            # Kan bekræftelsesskærmen RETTE dette navn? Kun hvis det er
+            # familiens eget — OFF's eget gæt skal ikke kunne overskrives
+            # via feltet uden videre. Se openConfirm() i static/index.html.
+            "navn_er_vores": product.navn_manuelt is not None,
             "brand": product.brand,
             "quantity": product.quantity,
             "image_url": product.image_url,
@@ -656,7 +687,7 @@ def queue(
                 "ean": item.product_ean,
                 "reason": item.reason,
                 "created_at": item.created_at.isoformat(),
-                "name": p.name if p else None,
+                "name": _visningsnavn(p) if p else None,
                 "brand": p.brand if p else None,
                 "has_ingredients": bool(p and p.ingredients_text),
             }
@@ -984,15 +1015,19 @@ def soeg(
         rows, verdicts, stale = _verdict_rows(db, hh.id, p, slugs, domme.get(p.ean, {}))
         ip = pr_ean.get(p.ean)
         samme_vare = ip is not None
+        visningsnavn = _visningsnavn(p)
         if ip is None:
             # Ingen kobling endnu — så må navnene gøre arbejdet, med de to
-            # tærskler i `_match_liste`.
-            ip, samme_vare = _match_liste(p.name, p.brand, ordindeks)
+            # tærskler i `_match_liste`. Familiens eget navn (hvis sat)
+            # bruges her på lige fod med OFF's — en vare, OFF aldrig fandt,
+            # men familien selv har navngivet, skal kunne matches ligesom
+            # enhver anden.
+            ip, samme_vare = _match_liste(visningsnavn, p.brand, ordindeks)
         if samme_vare:
             brugt.add(ip.id)      # kun ved sikkert match — ellers taber vi en række
         kandidater.append({
             "ean": p.ean,
-            "navn": p.name or "Uden navn",
+            "navn": visningsnavn or "Uden navn",
             "maerke": p.brand,
             "billede": p.image_url,
             # Scannede varer har ingen hyldenavne af sig selv — de arver
@@ -1190,21 +1225,46 @@ def _rens(ean: str, slags: str) -> tuple[str, str]:
     return r, slags
 
 
+def _foto_familie(bruger: User | None) -> bool:
+    """`taget_af` er en VOKSENS navn og ryger ikke ud af huset — og siden
+    0.20.0 dækker "indlogget" også en inviteret bidragyder. Familien, dem
+    der rent faktisk bekræfter en vare og har brug for at vide hvis
+    billede de kigger på, er curator/admin. En bidragyder har intet brug
+    for at se sit eget navn ekko'et tilbage. Delt af _foto_svar() og
+    _alle_fotos_svar(), så de to ikke kan komme til at gate forskelligt."""
+    return bruger is not None and bruger.role in ("curator", "admin")
+
+
+def _foto_kan_slette(f: ProductPhoto, bruger: User | None) -> bool:
+    """Samme regel som slet_foto() håndhæver — delt, så en knap i
+    grænsefladen aldrig kan blive vist for noget, brugeren rent faktisk
+    får 403 på. Curator/admin må slette alt; en bidragyder kun sit eget
+    (afgjort af `taget_af_user_id`, ikke af navnestrengen `taget_af`)."""
+    if bruger is None:
+        return False
+    if bruger.role in ("curator", "admin"):
+        return True
+    return f.taget_af_user_id == bruger.id
+
+
 def _foto_svar(db: Session, hh_id: int, ean: str, bruger: User | None = None) -> dict:
+    """Ét indslag pr. slags — det NYESTE, hvis der ligger flere (siden
+    0.21.0 erstatter et nyt foto ikke længere det gamle). ORDER BY
+    (taget_at, id) ASC, så dict-tildelingen naturligt lader den seneste
+    vinde — `id` er tiebreak ved samme sekund-præcise tidsstempel, ligesom
+    hent_foto()s (taget_at DESC, id DESC), så de to ruter aldrig kan
+    komme til at pege på to FORSKELLIGE billeder som "det nyeste". Se
+    _alle_fotos_svar() for ALLE billeder, ikke kun det nyeste pr. slags."""
     ud = {}
-    # taget_af er en VOKSENS navn og ryger ikke ud af huset — og siden
-    # 0.20.0 dækker "indlogget" også en inviteret bidragyder. Familien,
-    # dem der rent faktisk bekræfter en vare og har brug for at vide hvis
-    # billede de kigger på, er curator/admin. En bidragyder har intet
-    # brug for at se sit eget navn ekko'et tilbage.
-    familie = bruger is not None and bruger.role in ("curator", "admin")
+    familie = _foto_familie(bruger)
     for f in db.scalars(
-        select(ProductPhoto).where(
-            ProductPhoto.household_id == hh_id, ProductPhoto.product_ean == ean
-        )
+        select(ProductPhoto)
+        .where(ProductPhoto.household_id == hh_id, ProductPhoto.product_ean == ean)
+        .order_by(ProductPhoto.taget_at, ProductPhoto.id)
     ):
         v = int(f.taget_at.timestamp())
         ud[f.slags] = {
+            "id": f.id,
             "url": f"/api/products/{ean}/foto/{f.slags}?v={v}",
             "mini_url": f"/api/products/{ean}/foto/{f.slags}?v={v}&mini=1",
             # "Z" med vilje: taget_at er UTC (models.now()) men gemmes
@@ -1217,6 +1277,73 @@ def _foto_svar(db: Session, hh_id: int, ean: str, bruger: User | None = None) ->
             "hoejde": f.hoejde,
         }
     return ud
+
+
+def _alle_fotos_svar(db: Session, hh_id: int, ean: str, bruger: User | None) -> dict:
+    """
+    ALLE billeder af varen, grupperet pr. slags, nyeste først — i
+    modsætning til _foto_svar() (kun det NYESTE pr. slags), som det
+    lille galleri på scan-kortet bruger uændret.
+
+    Findes, fordi intet endepunkt før udleverede et `foto_id` for et
+    ÆLDRE billede: en curator kunne ikke rydde op i dem ved gennemgang,
+    og en bidragyder kunne ikke selv slette et billede, hun havde
+    fortrudt. Hvert billede får sin egen URL via hent_bestemt_foto()
+    (`.../foto/{slags}/{id}`), ikke den "nyeste vinder"-rute — ellers
+    ville to billeder af samme slags vise det SAMME billede i galleriet.
+    """
+    familie = _foto_familie(bruger)
+    ud: dict[str, list[dict]] = {slags: [] for slags in SLAGS}
+    for f in db.scalars(
+        select(ProductPhoto)
+        .where(ProductPhoto.household_id == hh_id, ProductPhoto.product_ean == ean)
+        .order_by(ProductPhoto.taget_at.desc(), ProductPhoto.id.desc())
+    ):
+        v = int(f.taget_at.timestamp())
+        ud.setdefault(f.slags, []).append({
+            "id": f.id,
+            "slags": f.slags,
+            "url": f"/api/products/{ean}/foto/{f.slags}/{f.id}?v={v}",
+            "mini_url": f"/api/products/{ean}/foto/{f.slags}/{f.id}?v={v}&mini=1",
+            "taget_at": f.taget_at.isoformat(timespec="seconds") + "Z",
+            **({"taget_af": f.taget_af} if familie else {}),
+            "bredde": f.bredde,
+            "hoejde": f.hoejde,
+            # Beregnet server-side, ikke gættet i grænsefladen: samme
+            # regel som slet_foto() selv håndhæver (_foto_kan_slette()),
+            # så der aldrig kan vises en sletteknap, kaldet ville få 403
+            # tilbage på.
+            "kan_slette": _foto_kan_slette(f, bruger),
+        })
+    return ud
+
+
+def _foto_filnavne(ean: str, slags: str) -> tuple[str, str]:
+    """Unikt filnavn til fuldbillede + miniature. Før 0.21.0 var det altid
+    "{ean}_{slags}.jpg" — ét billede pr. slags erstattede det forrige, så
+    navnet kunne være forudsigeligt. Nu ligger flere billeder side om
+    side, og har brug for hvert sit navn; formatet ender stadig på
+    ".jpg", så _mini_fil() virker uændret på gamle OG nye filer."""
+    token = secrets.token_hex(6)
+    fil = f"{ean}_{slags}_{token}.jpg"
+    return fil, _mini_fil(fil)
+
+
+def _mini_fil(fil: str) -> str:
+    return fil[:-4] + "_mini.jpg" if fil.endswith(".jpg") else fil + "_mini"
+
+
+def _send_foto(f: ProductPhoto, mini: bool) -> FileResponse:
+    mappe = _billedmappe()
+    sti = mappe / f.fil
+    if mini:
+        lille = mappe / _mini_fil(f.fil)
+        # Billeder gemt før miniaturerne fandtes har kun fuldudgaven.
+        sti = lille if lille.exists() else sti
+    if not sti.exists():
+        raise HTTPException(404, "intet billede")
+    return FileResponse(sti, media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=86400"})
 
 
 @app.post("/api/products/{ean}/foto")
@@ -1238,6 +1365,12 @@ def gem_foto(
     et foto gør ingen vare grøn, og dommen kommer stadig fra motoren
     eller fra en bekræftelse mod emballagen. Uploaderen kan være en
     inviteret bidragyder, ikke kun familien selv.
+
+    Hvert kald opretter et NYT billede (siden 0.21.0) — intet erstattes
+    automatisk. Ingredienslisten kan være ændret siden sidste foto, og en
+    bidragyder skal altid kunne lægge et nyt til, uden at overskrive en
+    andens arbejde. Ingen udsmidning; en curator rydder selv op (se
+    DELETE herunder).
     """
     from PIL import Image, ImageOps
 
@@ -1253,86 +1386,208 @@ def gem_foto(
 
     maks = FOTO_MAX[slags]
     img.thumbnail((maks, maks), Image.LANCZOS)
-    fil = f"{ean}_{slags}.jpg"
+    fil, mini_fil = _foto_filnavne(ean, slags)
     mappe = _billedmappe()
     img.save(mappe / fil, "JPEG", quality=FOTO_KVALITET[slags],
              subsampling=0 if slags == "deklaration" else 2, optimize=True)
 
     mini = img.copy()
     mini.thumbnail((MINI_MAX, MINI_MAX), Image.LANCZOS)
-    mini.save(mappe / f"{ean}_{slags}_mini.jpg", "JPEG", quality=78, optimize=True)
+    mini.save(mappe / mini_fil, "JPEG", quality=78, optimize=True)
 
     hh = default_household(db)
-    if db.get(Product, ean) is None:
-        # Ukendt stregkode er netop dér, et billede er mest værd — så
-        # opret varen, som bekræftelsen også gør.
-        db.add(Product(ean=ean, source="manual"))
+    # Begge JPEG'er ligger allerede på disken (ovenfor) FØR databasen har
+    # sagt god for det. Fejler indsættelsen eller commit'et, skal filerne
+    # ikke blive stående uopnåelige for altid — næste forsøg får et helt
+    # nyt, tilfældigt filnavn (se _foto_filnavne()), så det gamle par ville
+    # aldrig blive fundet eller ryddet op igen.
+    try:
+        if db.get(Product, ean) is None:
+            # Ukendt stregkode er netop dér, et billede er mest værd — så
+            # opret varen, som bekræftelsen også gør. `product_ean` er en
+            # RIGTIG fremmednøgle (app/models.py) — uden rækken her ville
+            # selve indsættelsen fejle på Postgres, og varen ville samtidig
+            # forblive usynlig for /api/soeg, som lister ud fra Product.
+            db.add(Product(ean=ean, source="manual"))
+        f = ProductPhoto(household_id=hh.id, product_ean=ean, slags=slags)
+        f.fil = fil
+        f.bredde, f.hoejde = img.size
+        f.taget_af = user.name
+        f.taget_af_user_id = user.id
+        f.taget_at = now().replace(tzinfo=None)
+        db.add(f)
+        db.commit()
+    except Exception:
+        (mappe / fil).unlink(missing_ok=True)
+        (mappe / mini_fil).unlink(missing_ok=True)
+        raise
+    return {
+        "ok": True,
+        "slags": slags,
+        "foto_id": f.id,
+        "fotos": _foto_svar(db, hh.id, ean, user),
+    }
+
+
+@app.get("/api/products/{ean}/foto/{slags}")
+def hent_foto(ean: str, slags: str, mini: bool = False, db: Session = Depends(get_session)):
+    """Åben læsning som resten — der er ingen personoplysninger i et
+    billede af en pakke rugbrød. Findes der flere billeder af samme
+    slags (siden 0.21.0), er det det NYESTE — se hent_bestemt_foto()
+    for et bestemt billede."""
+    ean, slags = _rens(ean, slags)
+    hh = default_household(db)
+    f = db.scalar(
+        select(ProductPhoto)
+        .where(
+            ProductPhoto.household_id == hh.id,
+            ProductPhoto.product_ean == ean,
+            ProductPhoto.slags == slags,
+        )
+        .order_by(ProductPhoto.taget_at.desc(), ProductPhoto.id.desc())
+        .limit(1)
+    )
+    if f is None:
+        raise HTTPException(404, "intet billede")
+    return _send_foto(f, mini)
+
+
+@app.get("/api/products/{ean}/foto/{slags}/{foto_id}")
+def hent_bestemt_foto(
+    ean: str,
+    slags: str,
+    foto_id: int,
+    mini: bool = False,
+    db: Session = Depends(get_session),
+):
+    """Samme åbne læsning som ovenfor, men ÉT bestemt billede — tilføjet
+    i 0.21.0, da et (vare, slags)-par ikke længere peger på præcis ét
+    foto."""
+    ean, slags = _rens(ean, slags)
+    hh = default_household(db)
     f = db.scalar(
         select(ProductPhoto).where(
+            ProductPhoto.id == foto_id,
             ProductPhoto.household_id == hh.id,
             ProductPhoto.product_ean == ean,
             ProductPhoto.slags == slags,
         )
     )
     if f is None:
-        f = ProductPhoto(household_id=hh.id, product_ean=ean, slags=slags)
-        db.add(f)
-    f.fil = fil
-    f.bredde, f.hoejde = img.size
-    f.taget_af = user.name
-    f.taget_at = now().replace(tzinfo=None)
-    db.commit()
-    return {"ok": True, "slags": slags, "fotos": _foto_svar(db, hh.id, ean, user)}
-
-
-@app.get("/api/products/{ean}/foto/{slags}")
-def hent_foto(ean: str, slags: str, mini: bool = False, db: Session = Depends(get_session)):
-    """Åben læsning som resten — der er ingen personoplysninger i et
-    billede af en pakke rugbrød."""
-    ean, slags = _rens(ean, slags)
-    hh = default_household(db)
-    f = db.scalar(
-        select(ProductPhoto).where(
-            ProductPhoto.household_id == hh.id,
-            ProductPhoto.product_ean == ean,
-            ProductPhoto.slags == slags,
-        )
-    )
-    mappe = _billedmappe()
-    sti = mappe / f"{ean}_{slags}.jpg"
-    if mini:
-        lille = mappe / f"{ean}_{slags}_mini.jpg"
-        # Billeder gemt før miniaturerne fandtes har kun fuldudgaven.
-        sti = lille if lille.exists() else sti
-    if f is None or not sti.exists():
         raise HTTPException(404, "intet billede")
-    return FileResponse(sti, media_type="image/jpeg",
-                        headers={"Cache-Control": "private, max-age=86400"})
+    return _send_foto(f, mini)
 
 
-@app.delete("/api/products/{ean}/foto/{slags}")
+@app.get("/api/products/{ean}/fotos")
+def alle_fotos(
+    ean: str,
+    # Åben som resten af fotoruterne (hent_foto/hent_bestemt_foto): et
+    # billede af en pakke bærer ingen personoplysninger. Sessionen er
+    # VALGFRI — den bruges kun til at gate `taget_af` (kun familien) og
+    # `kan_slette` (altid False for en anonym kalder; ellers beregnet af
+    # samme regel som slet_foto() selv håndhæver).
+    bruger: User | None = Depends(current_user),
+    db: Session = Depends(get_session),
+):
+    """
+    Alle billeder af varen, ikke kun det nyeste pr. slags — grundlaget
+    for en gennemgang, hvor en curator rydder op i ældre billeder, og en
+    bidragyder finder sit eget for at slette det igen.
+
+    `_foto_svar()` (kun det NYESTE pr. slags, brugt af det lille galleri
+    på scan-kortet og af /api/scan/{ean}) er URØRT af denne rute.
+    """
+    ean = "".join(ch for ch in ean if ch.isdigit())
+    if len(ean) < 8:
+        raise HTTPException(400, "stregkoden ser ikke rigtig ud")
+    hh = default_household(db)
+    return {
+        "nyeste": _foto_svar(db, hh.id, ean, bruger),
+        "alle": _alle_fotos_svar(db, hh.id, ean, bruger),
+    }
+
+
+@app.delete("/api/products/{ean}/foto/{slags}/{foto_id}")
 def slet_foto(
     ean: str,
     slags: str,
-    _: User = Depends(require_curator),
+    foto_id: int,
+    user: User = Depends(require_user),
     db: Session = Depends(get_session),
 ):
+    """
+    Curator og admin må slette et hvilket som helst foto — det er dem,
+    der rydder op ved gennemgang. En bidragyder (require_user, ikke
+    require_curator) må kun slette sit EGET: hun sender billeder ind til
+    et åbent internet uden mulighed for at fortryde ellers. Ejerskabet
+    afgøres af `taget_af_user_id`, ikke navnestrengen `taget_af` — to
+    hjælpere med samme fornavn må ikke kunne slette hinandens billeder.
+    """
     ean, slags = _rens(ean, slags)
     hh = default_household(db)
     f = db.scalar(
         select(ProductPhoto).where(
+            ProductPhoto.id == foto_id,
             ProductPhoto.household_id == hh.id,
             ProductPhoto.product_ean == ean,
             ProductPhoto.slags == slags,
         )
     )
-    if f is not None:
-        db.delete(f)
-        db.commit()
+    if f is None:
+        raise HTTPException(404, "intet billede")
+    if not _foto_kan_slette(f, user):
+        raise HTTPException(403, "du kan kun slette billeder, du selv har taget")
+    fil, mini_fil = f.fil, _mini_fil(f.fil)
+    db.delete(f)
+    db.commit()
     mappe = _billedmappe()
-    (mappe / f"{ean}_{slags}.jpg").unlink(missing_ok=True)
-    (mappe / f"{ean}_{slags}_mini.jpg").unlink(missing_ok=True)
+    (mappe / fil).unlink(missing_ok=True)
+    (mappe / mini_fil).unlink(missing_ok=True)
     return {"ok": True}
+
+
+class NavnIn(BaseModel):
+    # max_length matcher kolonnen (String(400)) — uden den blev et for
+    # langt navn før stille afkortet (navn[:400]) i stedet for afvist.
+    name: str = Field(min_length=1, max_length=400)
+
+
+@app.post("/api/products/{ean}/navn")
+def saet_produktnavn(
+    ean: str,
+    body: NavnIn,
+    _: User = Depends(require_curator),
+    db: Session = Depends(get_session),
+):
+    """
+    Navnet på en vare, familien selv skriver ind — den naturlige plads er
+    bekræftelsesskærmen, når I sidder med forsidefotoet af en stregkode,
+    Open Food Facts ikke kender. Gemmes i `product.navn_manuelt`, IKKE i
+    `product.name` (OFF's eget felt, se _ensure_product()): navngiver
+    OFF varen senere, skal familiens eget navn stadig vinde i visningen
+    (se _visningsnavn()), ikke blive overskrevet af OFF's gæt. BEVIDST en
+    egen rute og ikke en del af /confirm: at navngive en vare afgør ingen
+    dom, og bekræftelsesruten hører til allergen-domænet.
+
+    Opretter varen, hvis den ikke findes endnu — ligesom /confirm og
+    gem_foto allerede gør. Uden det mistede en forælder, der navngav OG
+    tastede en hel deklaration ind på en ukendt EAN, ALT arbejdet på en
+    404: frontend gemmer navnet FØR dommene (se saveConfirm() i
+    app/static/index.html), og en fejl her stoppede hele gemningen.
+    """
+    ean = "".join(ch for ch in ean if ch.isdigit())
+    if len(ean) < 8:
+        raise HTTPException(400, "stregkoden ser ikke rigtig ud")
+    navn = body.name.strip()
+    if not navn:
+        raise HTTPException(400, "navnet må ikke være tomt")
+    product = db.get(Product, ean)
+    if product is None:
+        product = Product(ean=ean, source="manual")
+        db.add(product)
+    product.navn_manuelt = navn
+    db.commit()
+    return {"ok": True, "name": _visningsnavn(product)}
 
 
 @app.post("/api/ocr")

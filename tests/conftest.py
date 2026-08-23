@@ -31,8 +31,23 @@ os.environ.setdefault("CHECK_PWNED_PASSWORDS", "0")
 os.environ.setdefault("OFF_BASE_URL", "http://127.0.0.1:9")
 
 import pytest
+from sqlalchemy import event
 
 from app.off import Lookup
+
+# SQLite håndhæver som udgangspunkt INGEN fremmednøgler — det skal slås
+# til pr. forbindelse. Uden det her så en upload af et deklarationsfoto
+# for en stregkode, appen ikke kender, ud til at virke i testene, mens
+# den samme kode fejlede med IntegrityError mod produktionens Postgres
+# (se ReviewItem's docstring i app/models.py for den samme lektie i en
+# anden tabel, opdaget ved en flytning i 0.16.1). Registreres FØR nogen
+# test åbner en forbindelse — se _sqlite_fk_paa herunder.
+from app.db import engine as _engine
+
+if _engine.dialect.name == "sqlite":
+    @event.listens_for(_engine, "connect")
+    def _sqlite_fk_paa(dbapi_con, con_record):
+        dbapi_con.execute("PRAGMA foreign_keys=ON")
 
 
 @pytest.fixture(autouse=True, scope="session")

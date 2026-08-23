@@ -126,6 +126,58 @@ def test_off_uden_tekst_overskriver_ikke_tastet_deklaration(auth, monkeypatch):
     assert p.source == "off"
 
 
+# --- et manuelt navn må ikke forsvinde, når OFF lærer varen at kende ----
+# Var i drift: curator skrev "Skyr med jordbær" på en EAN, OFF ikke
+# kendte, via POST /api/products/{ean}/navn. `_ensure_product()` skrev
+# `p.name = res["name"] or p.name` — og fordi OFF's felt OG familiens
+# navn lå i samme kolonne, overskrev OFF's gæt familiens navn den dag
+# varen blev fundet, uden nogen vej tilbage (openConfirm() viser kun et
+# navnefelt, når navnet ER tomt).
+
+def test_manuelt_navn_overlever_genhentning_fra_off(monkeypatch):
+    """
+    `product.navn_manuelt` er en EGEN kolonne (se app/models.py),
+    `_ensure_product()` rører den aldrig, og `_visningsnavn()` lader den
+    vinde over `product.name` (OFF's eget, ODbL-afledte felt).
+    """
+    import asyncio
+
+    import app.main as m
+    from app.off import Lookup
+
+    ean = "5700000000031"
+    with SessionLocal() as db:
+        db.add(Product(ean=ean, source="manual", navn_manuelt="Skyr med jordbær"))
+        db.commit()
+
+    async def fundet_med_navn(e, timeout=8.0):
+        return Lookup(found=True, error=None, name="OFF's eget gæt", brand="Et mærke",
+                      quantity=None, image_url=None, ingredients_text=None,
+                      ingredients_lang=None, off_allergen_tags=[], off_trace_tags=[])
+
+    monkeypatch.setattr(m.off, "fetch_product", fundet_med_navn)
+
+    async def hent():
+        with SessionLocal() as db:
+            await m._ensure_product(db, ean, refresh=True)
+            db.commit()
+            return db.get(Product, ean)
+
+    try:
+        p = asyncio.run(hent())
+        assert p.name == "OFF's eget gæt", "OFF's navn skal stadig gemmes i sit eget felt"
+        assert p.navn_manuelt == "Skyr med jordbær", "OFF overskrev familiens eget navn"
+        assert m._visningsnavn(p) == "Skyr med jordbær", (
+            "visningen skal vise familiens navn, ikke OFF's gæt"
+        )
+    finally:
+        with SessionLocal() as db:
+            p = db.get(Product, ean)
+            if p is not None:
+                db.delete(p)
+            db.commit()
+
+
 # --- proxy-tilliden skal fejle LUKKET -----------------------------------
 # Var i drift: `if TRUSTED_PROXY_HOSTS and peer not in ...` sprang
 # kontrollen over ved tom liste, så en header alene gav skriveadgang.

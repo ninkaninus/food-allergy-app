@@ -33,7 +33,7 @@ from sqlalchemy import select
 from app.auth import hash_password
 from app.db import RULES, SessionLocal, default_household, init_db
 from app.main import app
-from app.models import Household, Product, Profile, User
+from app.models import Household, Product, ProductPhoto, Profile, User
 
 PW = "korrekt-hest-batteri-haefteklamme"
 EAN = "5700000000048"
@@ -67,6 +67,13 @@ def opsat():
         db.commit()
     yield
     with SessionLocal() as db:
+        # Fotos hænger på produktet med en RIGTIG fremmednøgle siden
+        # 0.21.0 (se app/models.py) — de skal væk FØR produktet, ellers
+        # fejler sletningen med FOREIGN KEY constraint failed. Testene i
+        # denne fil uploader flere billeder til samme (vare, slags), så
+        # der kan ligge mere end de to, testene selv navngiver.
+        for foto in db.scalars(select(ProductPhoto).where(ProductPhoto.product_ean == EAN)):
+            db.delete(foto)
         p = db.get(Product, EAN)
         if p is not None:
             db.delete(p)
@@ -111,6 +118,11 @@ def _som_admin():
     f"/api/scan/{EAN}?allergens=maelkeprotein",
     "/api/soeg?q=test",
     "/api/products",
+    # ALLE billeder af varen (0.21.0) — samme afvejning som de øvrige
+    # fotoruter herunder: et billede af en pakke bærer ingen
+    # personoplysninger. `taget_af` og `kan_slette` er gatet inden i
+    # svaret, se test_alle_fotos_...-testene i tests/test_fotos.py.
+    f"/api/products/{EAN}/fotos",
     # BEVIDST offentligt: forslagene er afledt af familiens eget korpus,
     # men de er ordlisten, en fremmed skal kunne søge i.
     "/api/ingredients/suggest?q=mel",
@@ -313,11 +325,11 @@ def test_anonym_kan_ikke_uploade_foto_eller_koere_ocr(opsat):
     ).status_code == 401
 
 
-def test_bidragyder_kan_ikke_bekraefte_eller_slette(opsat):
+def test_bidragyder_kan_ikke_bekraefte(opsat):
     """
     `State.FREE` sættes ét sted i hele appen: `confirm`, bag
     `require_curator`. En inviteret bidragyder er ikke familien og må
-    hverken gøre en vare grøn eller slette familiens dokumentation.
+    ikke gøre en vare grøn.
 
     Statuskoden er PRÆCIS 403, ikke bare "401 eller 403": en bidragyder
     ER logget ind, så `require_curator` afviser på ROLLEN, ikke på
@@ -334,8 +346,21 @@ def test_bidragyder_kan_ikke_bekraefte_eller_slette(opsat):
     assert "må kun læse" not in r.json()["detail"]
     assert "familien" in r.json()["detail"].lower()
 
-    r = c.delete(f"/api/products/{EAN}/foto/deklaration")
-    assert r.status_code == 403, "en bidragyder kunne slette et foto"
+
+def test_bidragyder_kan_ikke_slette_familiens_foto(opsat):
+    """
+    Modstykket til test_bidragyder_kan_slette_eget_foto (se test_fotos.py):
+    en bidragyder må rydde op efter sig selv, men ikke slette et billede,
+    familien (curator) selv har taget — ejerskabet afgøres af
+    `taget_af_user_id`, ikke af rollen alene.
+    """
+    r = _indlogget().post(f"/api/products/{EAN}/foto?slags=front",
+                          files={"image": ("f.jpg", _jpeg(), "image/jpeg")})
+    assert r.status_code == 200, r.text
+    foto_id = r.json()["foto_id"]
+
+    r = _som_bidragyder().delete(f"/api/products/{EAN}/foto/front/{foto_id}")
+    assert r.status_code == 403, "en bidragyder kunne slette familiens eget foto"
 
 
 def test_bidragyder_kan_ikke_aendre_allergensaettet_paa_serveren(opsat):
@@ -399,6 +424,45 @@ def test_fotoruten_er_bevidst_offentlig(opsat):
     r = _anonym().get(f"/api/products/{EAN}/foto/deklaration")
     assert r.status_code in (200, 404), r.status_code
     assert "taget_af" not in r.text
+
+
+def test_bestemt_foto_ruten_er_ligesaa_offentlig(opsat):
+    """
+    `GET /api/products/{ean}/foto/{slags}/{foto_id}` — tilføjet i 0.21.0,
+    da et (vare, slags)-par ikke længere peger på præcis ét foto (se
+    app/models.py). Samme afvejning som ovenfor, samme pris: en fremmed
+    kan bladre et BESTEMT billede frem, ikke kun det nyeste.
+    """
+    r = _indlogget().post(f"/api/products/{EAN}/foto?slags=front",
+                          files={"image": ("f2.jpg", _jpeg(), "image/jpeg")})
+    assert r.status_code == 200, r.text
+    foto_id = r.json()["foto_id"]
+    anon = _anonym().get(f"/api/products/{EAN}/foto/front/{foto_id}")
+    assert anon.status_code == 200
+    assert "taget_af" not in anon.text
+
+
+def test_anonym_kan_ikke_slette_foto(opsat):
+    """`DELETE .../foto/{slags}/{foto_id}` er skrivning og kræver login —
+    i modsætning til GET på samme billede, som er bevidst offentlig."""
+    r = _indlogget().post(f"/api/products/{EAN}/foto?slags=front",
+                          files={"image": ("f3.jpg", _jpeg(), "image/jpeg")})
+    foto_id = r.json()["foto_id"]
+    assert _anonym().delete(f"/api/products/{EAN}/foto/front/{foto_id}").status_code == 401
+
+
+def test_navn_ruten_kraever_familien(opsat):
+    """
+    `POST /api/products/{ean}/navn` sætter ALDRIG en dom — State.FREE
+    sættes stadig kun i confirm() — men at navngive familiens vare er
+    stadig familiens beslutning. En fremmed må ikke skrive den, og en
+    bidragyder må dokumentere en vare, ikke navngive den på familiens
+    vegne.
+    """
+    assert _anonym().post(f"/api/products/{EAN}/navn",
+                          json={"name": "X"}).status_code == 401
+    r = _som_bidragyder().post(f"/api/products/{EAN}/navn", json={"name": "X"})
+    assert r.status_code == 403, "en bidragyder kunne navngive familiens vare"
 
 
 @pytest.mark.parametrize("sti", ["/docs", "/redoc", "/openapi.json"])
@@ -644,21 +708,65 @@ def test_saveconfirm_skelner_401_fra_403():
     """
     401 (ingen session) og 403 (logget ind, men uden lov) krævede før
     samme, forkerte besked: "Din session er udløbet." En bidragyder, der
-    på en eller anden vej trykker "Gem dom", skal have at vide at intet
-    blev gemt — ikke bedt om at logge ind igen på en session, der er fin.
+    på en eller anden vej trykker "Gem dom" — eller navngiver en vare —
+    skal have at vide at intet blev gemt, ikke bedt om at logge ind igen
+    på en session, der er fin.
+
+    saveConfirm() og navnefeltet deler siden 0.21.0 én hjælper
+    (bekraeftelsesfejl()) i stedet for hver sin kopi af de samme to
+    tjek — testen ser derfor på HJÆLPEREN for selve skelnen, og på de to
+    kaldssteder for at de rent faktisk bruger den.
     """
     html = _anonym().get("/").text
-    krop = _funktionskrop(html, "$('#saveConfirm').onclick = async () => {", "\n};")
-    assert "r.status === 401" in krop and "r.status === 403" in krop, (
-        "saveConfirm() behandler ikke længere 401 og 403 hver for sig"
+    hjaelper = _funktionskrop(
+        html, "async function bekraeftelsesfejl(status, hvad){", "\n}"
+    )
+    assert "status === 401" in hjaelper and "status === 403" in hjaelper, (
+        "bekraeftelsesfejl() behandler ikke længere 401 og 403 hver for sig"
     )
     # Besked-teksten for 403 står mellem det tjek og resten af funktionen.
-    stk_403 = krop[krop.index("r.status === 403"):]
-    linje = stk_403.split("return;")[0]
+    stk_403 = hjaelper[hjaelper.index("status === 403"):]
+    linje = stk_403.split("return ")[1]
     assert "udløbet" not in linje, (
         "en 403 (bidragyder uden lov) får stadig beskeden om en udløbet session"
     )
     assert "ikke bekræfte" in linje or "kan sende billeder" in linje
+
+    krop = _funktionskrop(html, "$('#saveConfirm').onclick = async () => {", "\n};")
+    assert krop.count("bekraeftelsesfejl(") == 2, (
+        "saveConfirm() bruger ikke længere den delte fejlhjælper begge steder "
+        "(navnefeltet og selve /confirm-kaldet)"
+    )
+
+
+def test_openconfirm_viser_begge_billeder_og_navnefelt():
+    """
+    0.21.0: en ukendt vare (Open Food Facts kender den ikke) kan have
+    både et forside- og et deklarationsfoto. Familien skal kunne se BEGGE
+    på bekræftelsesskærmen og skrive varens navn ind, mens de sidder med
+    forsidefotoet foran sig — se POST /api/products/{ean}/navn.
+    """
+    html = _anonym().get("/").text
+    krop = _funktionskrop(html, "function openConfirm(){", "\nconst CHIP_TEKST")
+    assert "fotos?.front" in krop, "openConfirm() viser ikke længere forsidefotoet"
+    assert "fotos?.deklaration" in krop, "openConfirm() viser ikke længere deklarationsfotoet"
+    assert "confirmNavn" in krop, (
+        "openConfirm() tilbyder ikke længere at navngive en ukendt vare"
+    )
+
+
+def test_saveconfirm_gemmer_navnet_uden_om_bekraeftelsesruten():
+    """
+    Navngivning må IKKE gå gennem /confirm — den rute sætter en dom og
+    hører til allergen-domænet (se CLAUDE.md). Navnet skal gemmes ad sin
+    egen vej, POST /api/products/{ean}/navn, FØR en eventuel bekræftelse.
+    """
+    html = _anonym().get("/").text
+    krop = _funktionskrop(html, "$('#saveConfirm').onclick = async () => {", "\n};")
+    assert "/navn`" in krop, "saveConfirm() gemmer ikke længere navnet særskilt"
+    assert krop.index("/navn`") < krop.index("/confirm`"), (
+        "navnet gemmes ikke længere FØR bekræftelsen af dommene"
+    )
 
 
 def test_bidragyder_kan_ikke_aendre_familiens_allergensaet():
@@ -722,6 +830,224 @@ def test_visslab_rydder_fotokvitteringen():
     assert "#fotoKvittering" in krop, (
         "visSlab() rydder ikke længere #fotoKvittering — se lookup()/render()"
     )
+
+
+# --- galleriet over ALLE billeder, og sletning af dem (0.21.0) ----------
+
+def test_visslab_rydder_ogsaa_alle_billeder_galleriet():
+    """
+    Samme fejlklasse som ovenfor: uden oprydning her ville forrige vares
+    billeder — og deres slet-knapper — stå under NÆSTE vares kort, mens
+    den nye hentes.
+    """
+    html = _anonym().get("/").text
+    krop = _funktionskrop(html, "function visSlab(r, forklaring){", "\n}")
+    assert "#fotoAlle" in krop, "visSlab() rydder ikke længere #fotoAlle"
+
+
+def test_alle_fotos_galleriet_er_ikke_gated_paa_kan_bekraefte():
+    """
+    En bidragyder (USER, men ikke KAN_BEKRAEFTE) skal kunne se og slette
+    SIT EGET billede — se test_alle_fotos_kan_slette_foelger_ejerskab i
+    tests/test_fotos.py for den tunge backend-garanti. Galleriet må derfor
+    IKKE stå bag KAN_BEKRAEFTE, som #confirmPanel gør — kun bag USER.
+    """
+    html = _anonym().get("/").text
+    krop = _funktionskrop(html, "async function hentAlleFotos(ean){", "\n}")
+    assert "USER" in krop, "hentAlleFotos() tjekker ikke længere USER"
+    assert "KAN_BEKRAEFTE" not in krop, (
+        "hentAlleFotos() er gated på KAN_BEKRAEFTE — en bidragyder ville "
+        "så ikke kunne se eller slette sine egne billeder"
+    )
+
+
+def test_foto_sletning_bruger_ingen_browserdialog():
+    """
+    Sletning er uigenkaldelig og fjerner filer fra disken (se slet_foto()
+    i app/main.py) — men skal bekræftes INDLEJRET i UI'et, ikke med en
+    confirm()/alert(), som er for let at klikke væk fra med tommelen i
+    Netto uden at have læst den.
+    """
+    html = _anonym().get("/").text
+    krop = _funktionskrop(html, "function kobleSletning(li, ean){", "\n}")
+    assert "confirm(" not in krop and "alert(" not in krop, (
+        "sletning af et billede bruger en browserdialog"
+    )
+    assert "data-ja" in krop and "data-nej" in krop, (
+        "sletning mangler den indlejrede to-trins-bekræftelse (se sletSpoergsmaal())"
+    )
+
+
+def test_kobleSletning_haandterer_netvaerksfejl_og_genaktiverer_knapperne():
+    """
+    Fundet af UX-gennemgangen: `ja.disabled = true` blev sat FØR fetch,
+    og der var hverken try/catch eller en fejlvej, der satte den tilbage.
+    Dør signalet i Netto, kastes fejlen uopfanget, og rækken står med to
+    grå knapper for altid — ingen vej videre, og »en fejl må ALDRIG ligne
+    'der skete ikke noget'« (se lookup()).
+    """
+    html = _anonym().get("/").text
+    krop = _funktionskrop(html, "function kobleSletning(li, ean){", "\n}")
+    assert "try {" in krop and "catch" in krop, (
+        "kobleSletning() fanger ikke længere en fejlet fetch (netværksfejl)"
+    )
+    # Begge knapper skal genaktiveres i HVER fejlvej, ikke kun forsvinde.
+    assert krop.count("ja.disabled = false") >= 2, (
+        "'Ja, slet' genaktiveres ikke i alle fejlveje"
+    )
+    assert krop.count("nej.disabled = false") >= 2, (
+        "'Fortryd' genaktiveres ikke i alle fejlveje"
+    )
+    # Fejlen skal stå I RÆKKEN selv, ikke i #scanHint (som ligger langt
+    # over galleriet) — undtagen ved 401, hvor hele galleriet skjules.
+    assert "boks.insertAdjacentHTML" in krop, (
+        "en mislykket sletning viser ikke længere fejlen i selve rækken"
+    )
+    assert krop.count("scanHint") == 1, (
+        "en generisk sletningsfejl skriver stadig til #scanHint i stedet for rækken"
+    )
+    # Den rå statuskode må ikke stå alene tilbage som forklaring.
+    assert "r.status})." not in krop.replace(" ", ""), (
+        "fejlbeskeden viser stadig den rå HTTP-statuskode i stedet for almindeligt sprog"
+    )
+
+
+def test_kobleSletning_skjuler_galleriet_ved_udloebet_session():
+    """
+    Ved 401 ville hver resterende knap i galleriet alligevel bare give
+    401 igen — så hele #fotoAlle skjules, i stedet for at stå tilbage som
+    et galleri af knapper, ingen af dem kan bruges.
+    """
+    html = _anonym().get("/").text
+    krop = _funktionskrop(html, "function kobleSletning(li, ean){", "\n}")
+    stk_401 = krop[krop.index("r.status === 401"):]
+    linje = stk_401[:stk_401.index("if(!r.ok)")]
+    uden_mellemrum = linje.replace(" ", "").replace("\n", "")
+    assert "$('#fotoAlle').hidden=true" in uden_mellemrum
+    assert "logget ud" in linje.lower()
+
+
+def test_kobleSletning_lukker_andre_aabne_og_markerer_raekken():
+    """
+    Fundet af UX-gennemgangen: to deklarationsfotos taget samme dag ser
+    ens ud i en lille miniature. Åbnes en ny sletbekræftelse, skal en
+    ANDEN allerede-åben lukkes automatisk (ellers kan to "Ja, slet" stå
+    klar samtidig), og rækken selv skal markeres, så den er til at finde.
+    """
+    html = _anonym().get("/").text
+    krop = _funktionskrop(html, "function kobleSletning(li, ean){", "\n}")
+    assert "lukSletBekraeftelse" in krop, (
+        "kobleSletning() lukker ikke længere andre åbne bekræftelser"
+    )
+    assert "classList.add('aaben')" in krop, (
+        "den åbne række markeres ikke længere (.aaben, se CSS var(--unsafe))"
+    )
+
+
+def test_sletspoergsmaal_navngiver_billedet_og_afsenderen():
+    """
+    Fundet af UX-gennemgangen: bekræftelsen sagde bare »Slette for
+    altid?« — uden at sige HVILKET billede. Spørgsmålet skal navngive
+    slags, dato, og — er det en ANDENS billede — hvem der tog det.
+    """
+    html = _anonym().get("/").text
+    krop = _funktionskrop(html, "function sletSpoergsmaal(li){", "\n}")
+    assert "SLAGS_FOTO_ORD" in krop
+    assert "Det kan ikke fortrydes" in krop
+    assert "USER?.name" in krop, (
+        "sletSpoergsmaal() navngiver ikke afsenderen, når det ikke er en selv"
+    )
+
+
+def test_fotoalle_er_en_lukket_details_med_antal_i_overskriften():
+    """
+    BESLUTTET af UX-gennemgangen: galleriet skubbede #rows og #acts
+    ~215px ned på en lille telefon. Oprydning i gamle billeder er
+    aftenarbejde og skal ikke ligge i vejen i butikken — så det er nu en
+    <details>, sammenfoldet som standard, med antallet i overskriften.
+    """
+    html = _anonym().get("/").text
+    assert '<details class="sec" id="fotoAlle" hidden>' in html, (
+        "#fotoAlle er ikke længere (eller ikke længere lukket som standard) en <details>"
+    )
+    assert "<summary>Alle billeder (" in html
+
+
+def test_fotoalle_thumb_er_trykflade_der_forstoerrer():
+    """
+    Fundet af UX-gennemgangen: en 46px, ikke-klikbar miniature er ikke
+    nok til at se, hvilket billede man er ved at slette. Trykfladen er
+    hævet til 64px og genbruger aabnLup(), som #fotoRk allerede bruger.
+    """
+    html = _anonym().get("/").text
+    assert ".fotoliste .thumb{width:64px;height:64px" in html.replace("\n", " ").replace("  ", " ") \
+        or "width:64px;height:64px" in html, "miniaturen er ikke hævet til 64px"
+    krop = _funktionskrop(html, "function visAlleFotos(ean, alle){", "\n}")
+    assert 'class="thumb"' in krop
+    assert "aabnLup(" in krop
+
+
+def test_fotoalle_forklarer_manglende_knap_uden_rollenavne():
+    """
+    Fundet af UX-gennemgangen: der stod ingen forklaring på, hvorfor
+    nogle rækker ikke har en "Slet"-knap. Teksten må ikke bruge
+    rollenavne (curator/bidragyder) — kun hvad man selv kan gøre.
+    """
+    html = _anonym().get("/").text
+    krop = _funktionskrop(html, "function visAlleFotos(ean, alle){", "\n}")
+    assert "fotoAlleHint" in krop and "KAN_BEKRAEFTE" in krop
+    for ord in ("curator", "bidragyder", "contributor", "admin"):
+        assert ord not in krop.lower(), f"rollenavnet {ord!r} lækker ind i #fotoAlleHint's tekst"
+
+
+def test_hentallefotos_viser_ventetilstand_og_fejlbesked():
+    """
+    Fundet af UX-gennemgangen: mens billederne blev hentet, stod boksen
+    tom, og en fejlet hentning (netværk eller !r.ok) var helt tavs.
+    """
+    html = _anonym().get("/").text
+    krop = _funktionskrop(html, "async function hentAlleFotos(ean){", "\n}")
+    assert "Henter billeder" in krop
+    assert "try {" in krop and "catch" in krop
+    assert "!r.ok" in krop, "hentAlleFotos() tjekker ikke længere r.ok eksplicit"
+
+
+def test_openconfirm_forudfylder_familiens_eget_navn_til_rettelse():
+    """
+    Fundet af UX-gennemgangen: navnefeltet blev kun vist, mens navnet var
+    tomt — i samme sekund navnet var gemt, forsvandt feltet for altid, og
+    en tastefejl i familiens eget navn kunne aldrig rettes. Server-feltet
+    `navn_er_vores` (se /api/scan) afgør nu, om feltet forudfyldes.
+    """
+    html = _anonym().get("/").text
+    krop = _funktionskrop(html, "function openConfirm(){", "\nconst CHIP_TEKST")
+    assert "navn_er_vores" in krop, (
+        "openConfirm() bruger ikke længere navn_er_vores til at afgøre, om navnet kan rettes"
+    )
+    assert "navnErVores" in krop
+    # Parentesen "(se forsidefotoet)" må kun stå, når der ER et forsidefoto.
+    assert "'Varens navn' + (front ? ' (se forsidefotoet)' : '')" in krop.replace(
+        "  ", " "
+    ), "parentesen '(se forsidefotoet)' vises stadig uden et forsidefoto"
+
+
+def test_bekraeftelsesfejl_og_kobleSletning_bruger_samme_401_tekst():
+    """
+    Fundet af UX-gennemgangen: to forskellige tekster for samme
+    tilstand — »Din session er udløbet« mod »Du er blevet logget ud«.
+    »session« er et udviklerord, og kun den sidste sætning siger, hvor
+    man selv skal gå hen (Indstillinger).
+    """
+    html = _anonym().get("/").text
+    assert "Din session er udløbet" not in html, (
+        "den gamle, uensrettede 401-tekst findes stadig"
+    )
+    for start, slut in (
+        ("async function bekraeftelsesfejl(status, hvad){", "\n}"),
+        ("function kobleSletning(li, ean){", "\n}"),
+    ):
+        krop = _funktionskrop(html, start, slut)
+        assert "Du er blevet logget ud. Log ind igen under Indstillinger." in krop
 
 
 def test_gemfoto_giver_401_videre_i_stedet_for_daarligt_signal():

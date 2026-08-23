@@ -150,6 +150,44 @@ kun forsvarlig, så længe der er én husstand.
 
 ---
 
+## Fremtidig opgave — rigtige fotos til OCR-arbejdet, uden at de havner i git
+
+**Problemet:** `ocr-deklarationer`-skillens egen første prioritet er »flere
+rigtige fotos«. De 40 butiksfotos, der i sin tid valgte OCR-motoren,
+findes ikke længere, og der ligger to i `data-runtime/billeder` på
+udviklingsmaskinen. Enhver måling af en OCR-ændring er derfor gætværk —
+og et regelsæt eller en pipeline, der kun er prøvet mod opdigtet tekst,
+er ikke prøvet.
+
+**Hvorfor det ikke bare er at lægge nogle billeder i repoet:** det er
+PUBLIC. Deklarationsfotos er taget i familiens køkken og i butikker, og
+et enkelt uheldigt billede er offentligt for altid, også efter en
+sletning — git glemmer ikke.
+
+**Formen, der skal bygges:**
+
+1. **En lokal konto med lav rettighed** til det arbejde, så en agent kan
+   hente fotos gennem appen i stedet for at få dem stukket i hånden.
+   `contributor` kan allerede uploade; det, der mangler, er en måde at
+   *hente ned* i bulk.
+2. **En CLI-kommando**, fx `python -m app.cli fotos-ud <mappe>`, der
+   kopierer fra `DATA_DIR/billeder` til en mappe, git ikke ser.
+   `data-runtime/` er allerede gitignoreret — nye placeringer skal
+   dækkes samme sted, FØR de bruges.
+3. **En vagt i CI.** `hygiene`-jobbet i `.github/workflows/deploy.yml`
+   afviser i dag `.db`, `.sqlite`, `.xlsx` og hemmeligheder — men ikke
+   billeder. Tilføj en regel, der afviser nye `.jpg`/`.jpeg`/`.heic`
+   med en hvidliste for de ikoner, der legitimt hører til
+   (`app/static/apple-touch-icon.png` er den eneste i dag). Så er det
+   ikke længere disciplin, der holder dem ude.
+
+**Rækkefølge:** vagten (3) FØRST. Den koster fem linjer og gør de to
+andre trin sikre at arbejde med. Derefter eksporten, og til sidst
+kontoen, hvis der overhovedet viser sig et behov for at gå gennem
+appen frem for filsystemet.
+
+---
+
 ## Ting jeg bevidst har ladet være
 
 **Offline-tilstand.** Du sagde, det ikke er nødvendigt, og en service worker
