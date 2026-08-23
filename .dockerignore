@@ -1,0 +1,43 @@
+# Byggekonteksten er IKKE en kopi af repoet. Dockerfile gør `COPY app
+# /app/app` og `COPY data /app/data`, og det færdige image udgives til
+# GHCR fra et PUBLIC repo. En korpusmappe under app/ eller data/ ville
+# derfor blive offentlig, selv om git aldrig så den — .gitignore siger
+# intet om, hvad Docker kopierer.
+#
+# scripts/hent-korpus.py nægter at skrive nogen steder under repoet, så
+# det her er andet lag, ikke det første.
+korpus/
+allergiscan-korpus/
+**/korpus/
+**/allergiscan-korpus/
+
+# Familiens egne fotos og data, uanset hvor de måtte ligge.
+*.jpg
+*.jpeg
+*.heic
+*.heif
+*.webp
+*.avif
+*.jfif
+*.dng
+manifest.json
+*.xlsx
+*.xls
+*.ods
+*.db
+*.sqlite
+*.sqlite3
+.env
+
+# Ikonet SKAL med — det serveres af appen.
+!app/static/apple-touch-icon.png
+
+# Intet af det her hører til i et køreklart image.
+.git/
+.github/
+.claude/
+data-runtime/
+tests/
+.venv/
+__pycache__/
+*.pyc

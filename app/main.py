@@ -1651,6 +1651,85 @@ def ocr_declaration(
     return res
 
 
+@app.get("/api/korpus")
+def korpus(
+    # require_user, IKKE require_curator: en dedikeret, lav-rettighed
+    # konto til OCR-arbejdet (rollen `contributor`) skal kunne læse
+    # korpusset — men den kan aldrig bekræfte en vare, og læsning her
+    # ændrer intet. Se ROADMAP.md, "rigtige fotos til OCR-arbejdet".
+    #
+    # IKKE fordi noget her er nyt hemmeligt: hvert foto og hver
+    # deklarationstekst kan allerede hentes anonymt ét ad gangen
+    # (foto-ruterne, /api/scan), og /api/soeg?q= udleverer i forvejen
+    # alle EAN'er uden login — "kender ikke hver EAN i forvejen" er altså
+    # ingen reel beskyttelse. require_user her er den forsigtige standard
+    # for en NY rute (start lukket), og det eneste, den reelt sparer en
+    # fremmed for, er at skulle kalde flere ruter i stedet for én.
+    _: User = Depends(require_user),
+    db: Session = Depends(get_session),
+):
+    """
+    Korpus til at måle OCR-arbejdet mod virkeligheden i stedet for mod
+    opdigtet tekst: hver vare med mindst ét eget foto ELLER en
+    deklarationstekst.
+
+    `deklaration_gik_gennem_bekraeftelse` (product.source == "manual") er
+    IKKE et facit — det siger kun, at rækkens seneste skrivning gik
+    gennem POST .../confirm, ikke om mennesket rettede et eneste tegn (et
+    ombytteligt tryk på "Gem" gemmer OCR-teksten ordret), og heller ikke
+    om et senere baggrunds-genhentning fra Open Food Facts (hver 14.
+    dag, se _ensure_product()) siden har vippet den tilbage til falsk,
+    selvom teksten stadig er den, mennesket tastede — `_ensure_product()`
+    sætter `source = "off"` ubetinget ved enhver frisk hentning, uanset om
+    OFF faktisk havde en ingrediensliste denne gang. Brug feltet som en
+    grov sortering, ikke som et bevis. Den rigtige herkomst (hvornår
+    NETOP denne tekst sidst blev bekræftet, uafhængigt af produktrækkens
+    øvrige felter) er ikke bygget — den hører til allergen-domænet, fordi
+    den ligger tæt på confirm()-ruten.
+
+    BEVIDST UDELADT: `taget_af`/`taget_af_user_id`. Det er en voksens
+    navn, det er irrelevant for OCR-arbejdet, og et felt, der ikke
+    udleveres her, kan ikke lække. Tilføj det ikke, heller ikke i god tro.
+    """
+    hh = default_household(db)
+
+    fotos_ved_ean: dict[str, list[ProductPhoto]] = {}
+    for f in db.scalars(
+        select(ProductPhoto)
+        .where(ProductPhoto.household_id == hh.id)
+        .order_by(ProductPhoto.taget_at, ProductPhoto.id)
+    ):
+        fotos_ved_ean.setdefault(f.product_ean, []).append(f)
+
+    eaner = set(fotos_ved_ean)
+    for p in db.scalars(select(Product).where(Product.ingredients_text.isnot(None))):
+        if p.ingredients_text.strip():
+            eaner.add(p.ean)
+
+    produkter = {
+        p.ean: p
+        for p in db.scalars(select(Product).where(Product.ean.in_(eaner)))
+    }
+
+    ud = []
+    for ean in sorted(eaner):
+        p = produkter.get(ean)
+        ud.append(
+            {
+                "ean": ean,
+                "navn": _visningsnavn(p) if p else None,
+                "deklaration": p.ingredients_text if p else None,
+                "deklaration_gik_gennem_bekraeftelse": bool(p and p.source == "manual"),
+                "fotos": [
+                    {"id": f.id, "slags": f.slags,
+                     "url": f"/api/products/{ean}/foto/{f.slags}/{f.id}"}
+                    for f in fotos_ved_ean.get(ean, [])
+                ],
+            }
+        )
+    return ud
+
+
 # --------------------------------------------------------------------------
 # Licens og kreditering (ODbL kræver det — se NOTICE.md)
 # --------------------------------------------------------------------------

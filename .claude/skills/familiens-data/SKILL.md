@@ -76,7 +76,7 @@ end de tre.
 | `GET /api/scan/{ean}` — dommen* | `GET /api/profiles` — allergensættet, uden navn | `GET /api/queue` | `GET /api/auth/users` |
 | `GET /api/soeg`, `GET /api/products` | `POST /api/products/{ean}/foto` | `GET /api/diagnostik` | `POST /api/auth/users` |
 | `GET .../foto/{slags}`, `GET .../foto/{slags}/{foto_id}`, `GET .../fotos` | `POST /api/ocr`, `DELETE .../foto/{slags}/{foto_id}` (kun sit eget) | `POST .../confirm`, `POST .../navn`, `DELETE` af hvem som helsts foto | |
-| `/api/allergens`, `/api/version`, `/api/changelog`, `/api/attribution` | | `POST /api/profiles/{id}/allergens`, `POST /api/liste/{id}/stregkode` | |
+| `/api/allergens`, `/api/version`, `/api/changelog`, `/api/attribution` | `GET /api/korpus` (0.23.0) — se note under tabellen | `POST /api/profiles/{id}/allergens`, `POST /api/liste/{id}/stregkode` | |
 | `/`, `/static`, `/healthz`, `/api/ingredients/suggest`, `/api/auth/me` | | | |
 
 `/docs`, `/redoc` og `/openapi.json` er slået helt fra (404, efterprøvet).
@@ -99,6 +99,30 @@ Et `foto_id` er et fortløbende heltal, og `GET .../foto/{slags}/{foto_id}`
 er åben. Billederne kan altså opremses af en fremmed, der kender EAN'en.
 Bevidst, jf. »åbent opslagsværk« — men det er grunden til, at sletningen
 skal kunne nås fra grænsefladen, og ikke kun findes på serveren.
+
+**`GET /api/korpus` (0.23.0), til at måle OCR-arbejdet mod rigtige fotos.**
+Samler pr. vare: navn, deklarationstekst,
+`deklaration_gik_gennem_bekraeftelse` (`product.source == "manual"` — se
+`ocr-deklarationer`-skillen for hvorfor det IKKE er det samme som "et
+menneske har set netop dette billede") og fotoenes URL'er. `require_user`,
+IKKE fuldt offentlig — men ikke fordi noget her er nyt hemmeligt: hvert
+foto og hver deklarationstekst kan allerede hentes anonymt ét ad gangen
+andre steder i tabellen ovenfor, og `/api/soeg?q=` udleverer i forvejen
+alle EAN'er uden login. "Kender ikke hver EAN i forvejen" er altså ingen
+reel beskyttelse; `require_user` er den forsigtige standard for en NY
+rute (start lukket), og sparer reelt kun en fremmed for at skulle kalde
+flere ruter i stedet for én. `taget_af`/`taget_af_user_id` er BEVIDST
+UDELADT fra svaret: en voksens navn, irrelevant for OCR-arbejdet, og et
+felt der ikke udleveres her, kan ikke lække. `scripts/hent-korpus.py`
+henter det ned til en mappe uden for repoet — se
+`.claude/skills/ocr-deklarationer/SKILL.md` og ROADMAP.md.
+
+**Korpusmappen på disken er sin egen kopi, med sine egne regler.** Den
+bør kun findes på maskinen hos den, der aktivt arbejder med OCR-målingen
+lige nu — ikke ligge permanent på en bærbar eller en delt server — og
+skal slettes, når det arbejde er færdigt. Sletter familien et foto eller
+en deklaration i appen, forsvinder det IKKE fra en tidligere eksporteret
+korpusmappe; eksporten har ingen udløbsdato af sig selv.
 
 \* **`GET /api/scan` svarer FORSKELLIGT alt efter, om der er en bruger.**
 For en indlogget: `profile: {id}` (KUN id'et — der er ikke noget navn

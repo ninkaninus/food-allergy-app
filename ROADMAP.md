@@ -152,39 +152,113 @@ kun forsvarlig, så længe der er én husstand.
 
 ## Fremtidig opgave — rigtige fotos til OCR-arbejdet, uden at de havner i git
 
-**Problemet:** `ocr-deklarationer`-skillens egen første prioritet er »flere
-rigtige fotos«. De 40 butiksfotos, der i sin tid valgte OCR-motoren,
-findes ikke længere, og der ligger to i `data-runtime/billeder` på
-udviklingsmaskinen. Enhver måling af en OCR-ændring er derfor gætværk —
-og et regelsæt eller en pipeline, der kun er prøvet mod opdigtet tekst,
-er ikke prøvet.
+**Gjort i 0.23.0:** `GET /api/korpus` (`require_user`, så en `contributor`
+kan læse det uden at kunne bekræfte noget) samler, pr. vare med mindst ét
+foto eller en deklarationstekst, navn, deklaration,
+`deklaration_gik_gennem_bekraeftelse` (`product.source == "manual"` —
+IKKE et facit, se `ocr-deklarationer`-skillen for begge de forkerte
+retninger, det kan vippe) og fotoenes URL'er. `scripts/hent-korpus.py`
+logger ind (kodeord tastes interaktivt, hvis `KORPUS_KODEORD` ikke er
+sat), henter korpusset og lægger billeder + `manifest.json` i en mappe
+uden for repoet (`~/allergiscan-korpus` som standard), idempotent, og
+siger hvor mange par der rent faktisk er BRUGBARE (deklarationsfoto +
+bekræftet tekst), ikke bare hvor mange billeder der ligger der.
+
+**Vagten i CI ER lavet** (`hygiene`-jobbet i
+`.github/workflows/deploy.yml`), men dækker for lidt — se »Hullet i
+vagten« herunder. At UDVIDE den regel rører stadig
+`.github/workflows/`, som hører til vedligeholderens
+infrastruktur-område, ikke `implementer`-agentens — den efterprøvede,
+endnu ikke anvendte regel står der i stedet for i selve workflow-filen.
+
+**Problemet, oprindeligt:** `ocr-deklarationer`-skillens egen første
+prioritet er »flere rigtige fotos«. De 40 butiksfotos, der i sin tid
+valgte OCR-motoren, findes ikke længere, og der ligger to i
+`data-runtime/billeder` på udviklingsmaskinen. Enhver måling af en
+OCR-ændring er derfor gætværk — og et regelsæt eller en pipeline, der kun
+er prøvet mod opdigtet tekst, er ikke prøvet.
 
 **Hvorfor det ikke bare er at lægge nogle billeder i repoet:** det er
 PUBLIC. Deklarationsfotos er taget i familiens køkken og i butikker, og
 et enkelt uheldigt billede er offentligt for altid, også efter en
 sletning — git glemmer ikke.
 
-**Formen, der skal bygges:**
+### Hullet i vagten
 
-1. **En lokal konto med lav rettighed** til det arbejde, så en agent kan
-   hente fotos gennem appen i stedet for at få dem stukket i hånden.
-   `contributor` kan allerede uploade; det, der mangler, er en måde at
-   *hente ned* i bulk.
-2. **En CLI-kommando**, fx `python -m app.cli fotos-ud <mappe>`, der
-   kopierer fra `DATA_DIR/billeder` til en mappe, git ikke ser.
-   `data-runtime/` er allerede gitignoreret — nye placeringer skal
-   dækkes samme sted, FØR de bruges.
-3. **En vagt i CI.** `hygiene`-jobbet i `.github/workflows/deploy.yml`
-   afviser i dag `.db`, `.sqlite`, `.xlsx` og hemmeligheder — men ikke
-   billeder. Tilføj en regel, der afviser nye `.jpg`/`.jpeg`/`.heic`
-   med en hvidliste for de ikoner, der legitimt hører til
-   (`app/static/apple-touch-icon.png` er den eneste i dag). Så er det
-   ikke længere disciplin, der holder dem ude.
+`hygiene`-jobbet afviser i dag committede `.jpe?g`/`.png`/`.heic`/
+`.webp`/`.gif`/`.tiff?`/`.bmp` mod en eksplicit hvidliste
+(`app/static/apple-touch-icon.png`). Efterprøvet lokalt: det overser
+`manifest.json` (husstandens fulde varefortegnelse i én fil — den mest
+sandsynlige fil at få committet fra en korpusmappe), en fil helt uden
+endelse, og `.avif`/`.jfif`/`.dng`/`.pdf`. Og den kører EFTER et push til
+et public repo — den stopper udgivelsen af imaget, ikke selve
+eksponeringen; det er stadig kun en lokal pre-commit-hook, der ville gøre
+det. Skriv ikke, at »disciplin holder dem ude« — jobbet ER disciplinen,
+bare for sent i forløbet til at forhindre selve committet.
 
-**Rækkefølge:** vagten (3) FØRST. Den koster fem linjer og gør de to
-andre trin sikre at arbejde med. Derefter eksporten, og til sidst
-kontoen, hvis der overhovedet viser sig et behov for at gå gennem
-appen frem for filsystemet.
+Den udvidede regel, testet lokalt mod en synteseliste af filnavne (ikke
+mod en rigtig commit):
+
+```bash
+BILLED_HVIDLISTE='^app/static/apple-touch-icon\.png$'
+if git ls-files | grep -iE '\.(jpe?g|png|heic|heif|webp|gif|tiff?|bmp|avif|jfif|dng|pdf)$' \
+     | grep -Ev "$BILLED_HVIDLISTE"; then
+  echo "::error::et billede er committet — familiens fotos må aldrig i git."
+  fail=1
+fi
+if git ls-files | grep -E '(^|/)manifest\.json$'; then
+  echo "::error::manifest.json er committet — det er husstandens fulde varefortegnelse (scripts/hent-korpus.py)"
+  fail=1
+fi
+# Filer uden endelse, der reelt ER et billede — grep på filnavn ser dem ikke.
+while IFS= read -r f; do
+  case "$(basename "$f")" in *.*) continue ;; esac
+  mime=$(git cat-file -p "HEAD:$f" 2>/dev/null | file -b --mime-type -)
+  case "$mime" in
+    image/*|application/pdf)
+      echo "::error::$f har ingen filendelse, men ER et billede ($mime)"
+      fail=1 ;;
+  esac
+done < <(git ls-files)
+```
+
+Efterprøv ved midlertidigt at `git add -f` en jpg, en `manifest.json` og
+en billedfil uden endelse, og se jobbet fejle på alle tre, før reglen
+regnes for færdig.
+
+**Endnu et lag, samme grund til ikke selv at røre det:** en `.dockerignore`
+i repo-roden, så en korpusmappe aldrig kan havne i imaget, selv hvis
+`_sikker_destination()` i `scripts/hent-korpus.py` en dag skulle blive
+omgået. Rører `Dockerfile`s byggekontekst, derfor samme
+infrastruktur-grænse:
+
+```
+/korpus/
+/allergiscan-korpus/
+manifest.json
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.webp
+*.gif
+!app/static/apple-touch-icon.png
+```
+
+**Næste skridt herfra, i rækkefølge:**
+
+1. Udvid vagten (regel ovenfor) — af nogen med adgang til at røre
+   `.github/workflows/`.
+2. Brug scriptet i praksis, et par gange, mens korpusset stadig er lille
+   (20 varer, 3 med fotos i skrivende stund) — det finder formodentlig
+   noget, beskrivelsen ikke forudså.
+3. **Et måleapparat**, når korpusset rent faktisk er stort nok til at
+   sige noget: et lille script, der kører begge OCR-motorer mod hvert
+   billede i `manifest.json` og sammenligner med `deklaration` for de
+   par, hvor `deklaration_gik_gennem_bekraeftelse` er sand — præcis den
+   slags tal, der stod i `ocr-deklarationer`-skillen om de 40 forsvundne
+   fotos. Ikke bygget nu, fordi et måleapparat til n=3 kun ville måle
+   støj.
 
 ---
 

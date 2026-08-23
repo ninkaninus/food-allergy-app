@@ -55,6 +55,45 @@ jobs:
             echo "::error::et regneark er committet — det er familiens egne data"
             fail=1
           fi
+          # Deklarationsfotos er taget i familiens køkken og i butikker.
+          # Repoet er PUBLIC, og git glemmer ikke — heller ikke efter en
+          # sletning. Vagten kommer FØR eksportværktøjet i samme udgivelse
+          # med vilje: så er det ikke disciplin, der holder billederne ude.
+          # Hvidlisten er eksplicit; skal der en legitim billedfil ind, er
+          # det en bevidst handling at udvide den her.
+          # BEMÆRK hvad denne vagt IKKE gør: den kører EFTER et push til et
+          # public repo. Den stopper udgivelsen af imaget — den forhindrer
+          # ikke selve eksponeringen, for indholdet har allerede ligget på
+          # GitHub, og git glemmer ikke. Kun en lokal pre-commit-hook ville
+          # nå det i tide. Jobbet ER disciplinen, bare sent i forløbet.
+          BILLED_HVIDLISTE='^app/static/apple-touch-icon\.png$'
+          if git ls-files | grep -iE '\.(jpe?g|png|heic|heif|webp|gif|tiff?|bmp|avif|jfif|dng|pdf)$' \
+               | grep -Ev "$BILLED_HVIDLISTE"; then
+            echo "::error::et billede er committet — familiens fotos må aldrig i git."
+            echo "::error::Er det en legitim ikonfil, så udvid BILLED_HVIDLISTE i dette job."
+            fail=1
+          fi
+          # manifest.json fra scripts/hent-korpus.py er husstandens FULDE
+          # varefortegnelse — hvert EAN, hvert navn, hver deklaration i én
+          # fil. Den er den mest sandsynlige fil at få committet fra en
+          # korpusmappe, og en endelsesregel ser den ikke.
+          if git ls-files | grep -E '(^|/)manifest\.json$'; then
+            echo "::error::manifest.json er committet — det er husstandens fulde varefortegnelse"
+            fail=1
+          fi
+          # Et billede uden filendelse fanges ikke af noget navnemønster.
+          while IFS= read -r f; do
+            case "$(basename "$f")" in *.*) continue ;; esac
+            # Læs fra arbejdstræet, ikke fra HEAD: efter actions/checkout
+            # ligger filen på disken, og `git cat-file HEAD:` ville desuden
+            # være blind for noget, der er tilføjet men endnu ikke committet.
+            mime=$(file -b --mime-type "$f" 2>/dev/null)
+            case "$mime" in
+              image/*|application/pdf)
+                echo "::error::$f har ingen filendelse, men ER et billede ($mime)"
+                fail=1 ;;
+            esac
+          done < <(git ls-files)
           exit $fail
 
   # Bygger imaget OG starter det. Et image, der bygger fint men dør ved

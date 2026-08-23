@@ -20,6 +20,32 @@ data/*.db-shm
 pgdata/
 caddy/
 
+# scripts/hent-korpus.py lægger som standard i ~/allergiscan-korpus, altså
+# UDEN FOR repoet — men er dette alligevel de sikkerhedslag, der holder
+# den ude, hvis nogen nogensinde peger den herind. Ankret med et
+# indledende "/": et uankret mønster som "korpus/" matcher i ENHVER
+# dybde og fik `_sikker_destination()` i scripts/hent-korpus.py til
+# fejlagtigt at regne app/static/korpus, data/korpus og app/korpus for
+# "sikre". Scriptets egen vagt stoler ikke længere på denne fil (den
+# afviser nu ubetinget alt inde i repoet) — dette er kun det andet lag.
+/allergiscan-korpus/
+/korpus/
+
+# --- Billeder af familiens egne pakker -----------------------------------
+# Andet lag ud over hygiene-jobbet i .github/workflows/deploy.yml, som
+# afviser dem, hvis de alligevel bliver committet. Spejl listen, hvis den
+# ene ændres — de skal blive ved med at dække det samme.
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.webp
+*.gif
+*.tiff
+*.tif
+*.bmp
+!app/static/apple-touch-icon.png
+
 # --- Python -------------------------------------------------------------
 __pycache__/
 *.py[cod]

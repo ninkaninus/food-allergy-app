@@ -247,6 +247,31 @@ def test_allergensaettet_er_familiens_delte_indstilling(opsat):
         )
 
 
+def test_korpus_kraever_login_men_ikke_familien(opsat):
+    """
+    `GET /api/korpus` (0.23.0) hører til SAMME tredje kategori som
+    `/api/profiles` ovenfor og fotoupload/OCR: `require_user`, ikke
+    `require_curator` — en dedikeret, lav-rettighed konto til
+    OCR-arbejdet (rollen `contributor`) skal kunne hente korpusset, uden
+    at kunne bekræfte en eneste vare. Den hører derfor IKKE til i
+    `FAMILIENS_EGNE_RUTER` herunder, som netop tester ruter, en
+    bidragyder IKKE må se.
+
+    Selve indholdet (fotos, deklarationstekst) er allerede tilgængeligt
+    ét ad gangen for en anonym via /api/scan og fotoruterne, og
+    `/api/soeg?q=` udleverer i forvejen alle EAN'er uden login — "kender
+    ikke hver EAN i forvejen" er altså ingen reel beskyttelse her.
+    Grænsen handler ikke om ny persondata, men om den forsigtige standard
+    for en NY rute: start lukket. Det eneste, `require_user` reelt sparer
+    en fremmed for, er at skulle kalde flere ruter i stedet for én.
+    Detaljerne (bl.a. at `taget_af` aldrig er med) står i
+    tests/test_korpus.py.
+    """
+    assert _anonym().get("/api/korpus").status_code == 401
+    assert _som_bidragyder().get("/api/korpus").status_code == 200
+    assert _indlogget().get("/api/korpus").status_code == 200
+
+
 ADMIN_EGNE_RUTER = [
     ("/api/auth/users", "hvem der er inviteret, og med hvilken rolle"),
 ]

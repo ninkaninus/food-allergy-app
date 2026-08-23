@@ -3,6 +3,20 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.23.0 — 23. august 2026
+
+**Jeres billeder bliver brugt til at gøre aflæsningen bedre**
+
+De fotos, I allerede har taget af deklarationer, kan nu hentes samlet og
+bruges til at gøre appens læsning af varedeklarationer bedre — særligt de
+billeder, hvor en af jer har rettet teksten til under en bekræftelse.
+Billederne er offentlige, ligesom de altid har været — det er
+dokumentationen bag en bekræftelse, og de kunne allerede ses ét ad gangen
+af hvem som helst med et link til varen. Det nye er kun en samlet vej til
+at hente dem alle på én gang, og den kræver stadig, at en af jer (eller en
+betroet hjælper) er logget ind. Ingenting ændrer sig i den måde, I bruger
+appen på.
+
 ## 0.22.0 — 23. august 2026
 
 **Kameraet er tændt, når I åbner appen — og véd nu, hvornår det skal slukke**

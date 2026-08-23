@@ -194,11 +194,67 @@ så PIL ikke blokerer event-loopet).
   **alle falske positiver** fra fuzzy-matchning på grafikstøj — efterprøvet
   mod de fysiske etiketter.
 
+## Korpus af rigtige fotos (0.23.0) — vejen findes nu
+
+`GET /api/korpus` (`require_user`, så en dedikeret `contributor`-konto til
+OCR-arbejdet kan læse det uden at kunne bekræfte noget) samler, pr. vare
+med mindst ét eget foto eller en deklarationstekst: `ean`, `navn`,
+`deklaration`, `deklaration_gik_gennem_bekraeftelse` og `fotos` (fuld
+opløsning, ikke miniature). `taget_af`/`taget_af_user_id` er BEVIDST
+udeladt — en voksens navn, irrelevant for OCR-arbejdet.
+
+**`deklaration_gik_gennem_bekraeftelse` (`product.source == "manual"`) er
+IKKE et facit — den er ikke engang sand eller falsk i den retning, navnet
+lyder af.** Den siger kun, at rækkens seneste skrivning gik gennem
+`POST .../confirm`, og det er sandt, ELLER falsk, af de forkerte grunde
+begge veje:
+
+- **For sand:** en forælder ser OCR-teksten uændret i bekræftelsesfeltet
+  og trykker Gem uden at rette et tegn. Feltet bliver `true` på ordret
+  OCR-output — måler du OCR-motoren mod det, måler du den mod sig selv.
+- **For falsk:** `_ensure_product()` sætter `source = "off"` UBETINGET
+  ved enhver frisk OFF-hentning (hver 14. dag), uanset om OFF faktisk
+  havde en ingrediensliste denne gang — `p.ingredients_text` rører den
+  ikke, men feltet vipper alligevel til `false`, selvom teksten stadig er
+  den, et menneske tastede af den fysiske pakke.
+
+Brug feltet som en grov forhåndssortering, aldrig som et facit i et
+måleapparat. Den rigtige herkomst — hvornår NETOP denne tekst sidst blev
+bekræftet af et menneske, uafhængigt af produktrækkens øvrige felter — er
+ikke bygget. Det kræver en beslutning om, at familiens tekst er
+autoriteten og OFF vagthund, og hører til hos `allergen-domaene`, fordi
+det ligger tæt på `confirm()`-ruten.
+
+`scripts/hent-korpus.py` logger ind (`KORPUS_URL`/`KORPUS_MAIL`, og
+`KORPUS_KODEORD` kun hvis den er sat — ellers spørger scriptet
+interaktivt med `getpass`, så kodeordet aldrig lander i shell-historikken),
+henter korpusset og lægger billeder + `manifest.json` i en mappe UDEN FOR
+repoet (`~/allergiscan-korpus` som standard) — idempotent, og den siger
+tydeligt, hvor mange par der er BRUGBARE (deklarationsfoto + bekræftet
+tekst), ikke bare hvor mange billeder der ligger der.
+
+**CI-vagten mod committede billeder er sat op** (`hygiene`-jobbet i
+`.github/workflows/deploy.yml`), men dækker i skrivende stund kun kendte
+billed-endelser (`jpe?g|png|heic|webp|gif|tiff?|bmp`) mod en eksplicit
+hvidliste. Den dækker IKKE: `manifest.json` (husstandens fulde
+varefortegnelse i én fil — den mest sandsynlige fil at få committet fra
+en korpusmappe), en fil helt uden endelse, eller `.avif`/`.jfif`/`.dng`/
+`.pdf`. Og den kører EFTER et push til et public repo — den stopper
+udgivelsen af imaget, ikke selve eksponeringen; kun en lokal
+pre-commit-hook gør det. Se ROADMAP.md for den efterprøvede, endnu ikke
+anvendte regel, der lukker de huller.
+
+Målt på produktionen 23. august 2026: 20 scannede varer, 3 med fotos (6
+billeder), 17 med deklarationstekst, 3 med begge — korpusset er stadig
+lille, og et regelsæt eller en pipeline testet mod opdigtet tekst er ikke
+testet. Kør scriptet igen, efterhånden som familien bruger appen, før du
+tror på et tal.
+
 ## Sådan måler du en ændring
 
 Der ligger kun **ét** rigtigt foto i `data-runtime/billeder/`
-(`3017620422003_deklaration.jpg`). Et regelsæt eller en pipeline testet mod
-opdigtet tekst er ikke testet — bed om flere fotos, før du tror på et tal.
+(`3017620422003_deklaration.jpg`) på udviklingsmaskinen. Hent flere via
+korpusset ovenfor, før du stoler på en måling.
 
 ```bash
 # Tjenesten publicerer INGEN port — den er kun på compose-netværket
@@ -250,7 +306,12 @@ pytest tests/test_ocr.py tests/test_ocr_sektion.py tests/test_ocr_klient.py -q
 I rækkefølge efter hvad der giver mest for familien:
 
 1. **Flere rigtige fotos.** Alt herunder er gætværk uden dem. 40 blev brugt
-   til at vælge motor; der ligger ét i repoet.
+   til at vælge motor; der ligger ét i repoet. Vejen til at hente dem er
+   nu bygget (`GET /api/korpus`, `scripts/hent-korpus.py`, 0.23.0), og
+   CI-vagten mod committede billeder er sat op — det, der mangler, er at
+   udvide dens dækning (se ROADMAP.md for den efterprøvede regel) og at
+   nogen bruger scriptet nok gange til at korpusset bliver stort nok til
+   at sige noget.
 2. **Vis `found_section` i bekræftelsesskærmen** — »appen kunne ikke finde
    ingredienslisten, her er hele teksten«. Ét felt, der allerede beregnes.
 3. **Nedskalering i browseren** før upload. Fjerner dobbelt-uploadet, den
