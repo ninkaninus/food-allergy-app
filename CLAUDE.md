@@ -198,8 +198,8 @@ alt andet, arket måtte kunne: kan en scannet vare også have det?
 
 ```bash
 pip install -r requirements.txt
-DATA_DIR=./data-runtime RULES_PATH=./data/allergens.yaml COOKIE_SECURE=0 \
-  uvicorn app.main:app --reload
+TILLAD_SQLITE=1 DATA_DIR=./data-runtime RULES_PATH=./data/allergens.yaml \
+  COOKIE_SECURE=0 uvicorn app.main:app --reload
 
 pytest tests/ -q          # 256 tests, 5 springes over uden Tesseract-dansk
 python -m app.cli adduser dig@example.dk "Navn"

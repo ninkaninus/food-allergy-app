@@ -3,6 +3,21 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.21.1 — 23. august 2026
+
+**Appen starter ikke længere, hvis den er i tvivl om, hvor jeres data er**
+
+Der var en fælde, ingen havde set: forsvandt den indstilling, der
+fortæller appen, hvilken database den skal bruge, sagde den ikke fra. Den
+lavede stille og roligt en ny, tom database og startede op, som om intet
+var galt. I ville have åbnet appen og fundet den fuldstændig tom — ingen
+varer, ingen bekræftelser, ingen billeder — mens alt det rigtige lå
+uberørt og ventede.
+
+Nu nægter den at starte og siger hvorfor. Sker det, ruller serveren
+automatisk tilbage til den forrige udgave, og I mærker ingenting. Det er
+ikke noget, I skal gøre — det er en fælde, der er klappet i.
+
 ## 0.21.0 — 23. august 2026
 
 **Billeder af varer, appen slet ikke kender, virker nu pålideligt**

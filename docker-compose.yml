@@ -41,6 +41,9 @@ services:
       TRUST_PROXY_AUTH: "${TRUST_PROXY_AUTH:-0}"
       TRUSTED_PROXY_HOSTS: "${TRUSTED_PROXY_HOSTS:-caddy}"
       DATABASE_URL: "${DATABASE_URL:-}"
+      # Tom DATABASE_URL stopper opstarten (0.21.1) — sæt denne til 1,
+      # hvis I bevidst vil køre på SQLite-filen i /data.
+      TILLAD_SQLITE: "${TILLAD_SQLITE:-}"
       # Cloudflare Access. Tomme = slået fra, appen bruger lokale brugere.
       CF_ACCESS_TEAM_DOMAIN: "${CF_ACCESS_TEAM_DOMAIN:-}"
       CF_ACCESS_AUD: "${CF_ACCESS_AUD:-}"

@@ -29,6 +29,11 @@ os.environ.setdefault("CHECK_PWNED_PASSWORDS", "0")
 # Peger et dødt sted hen, så et glemt kald fejler hurtigt i stedet for
 # at gå på nettet. Stubben nedenfor betyder, at det normalt ikke sker.
 os.environ.setdefault("OFF_BASE_URL", "http://127.0.0.1:9")
+# Suiten kører på SQLite, og det skal siges udtrykkeligt siden 0.21.1:
+# uden DATABASE_URL nægter app/db.py at starte frem for at opfinde en tom
+# database. Præcis dét er meningen — men en testkørsel er netop det ene
+# sted, hvor en frisk, tom database er det rigtige.
+os.environ.setdefault("TILLAD_SQLITE", "1")
 
 import pytest
 from sqlalchemy import event

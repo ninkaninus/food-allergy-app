@@ -15,10 +15,38 @@ RULES_PATH = Path(os.getenv("RULES_PATH", "/app/data/allergens.yaml"))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# SQLite er rigeligt til én husstand. Skal appen deles med flere familier med
-# samtidige skrivninger, sæt DATABASE_URL til Postgres-containeren:
-#   postgresql+psycopg://allergiscan:hemmeligt@postgres:5432/allergiscan
-DATABASE_URL = os.getenv("DATABASE_URL") or f"sqlite:///{DATA_DIR / 'allergiscan.db'}"
+# Appen SKAL vide, hvilken database den kigger i. Før faldt den tavst
+# tilbage på en SQLite-fil, hvis DATABASE_URL manglede:
+#
+#     DATABASE_URL = os.getenv("DATABASE_URL") or f"sqlite:///..."
+#
+# Forsvandt variablen — en tastefejl i .env, en ændring i compose,
+# `${DATABASE_URL:-}` der resolver tomt — fejlede appen ikke. Den lavede
+# en splinterny, TOM database i /data og startede grønt op. Alle varer,
+# domme, brugere og billeder var væk fra appens synsfelt, mens de rigtige
+# data lå uberørt i Postgres. Healthchecket bestod. Autodeploy meldte
+# fuldført. Det er samme fejlform som en migrering, der tier: et tavst
+# fald tilbage, der ligner succes.
+#
+# Nu skal SQLite vælges udtrykkeligt. Til lokal udvikling:
+#     TILLAD_SQLITE=1 DATA_DIR=./data-runtime uvicorn app.main:app --reload
+_url = (os.getenv("DATABASE_URL") or "").strip()
+if not _url:
+    if (os.getenv("TILLAD_SQLITE") or "").strip().lower() not in {"1", "true", "ja"}:
+        raise RuntimeError(
+            "DATABASE_URL er ikke sat, og TILLAD_SQLITE er ikke slået til.\n"
+            "\n"
+            "Appen nægter at starte frem for at oprette en TOM SQLite-database "
+            "og lade som om alt er i orden — det ville se ud, som om alle varer, "
+            "domme, brugere og billeder var forsvundet.\n"
+            "\n"
+            "  I drift:  sæt DATABASE_URL i .env, fx\n"
+            "            postgresql+psycopg://allergiscan:<kodeord>@postgres:5432/allergiscan\n"
+            "  Lokalt:   sæt TILLAD_SQLITE=1\n"
+        )
+    _url = f"sqlite:///{DATA_DIR / 'allergiscan.db'}"
+
+DATABASE_URL = _url
 
 if DATABASE_URL.startswith("sqlite"):
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
@@ -27,6 +55,16 @@ else:
 
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 RULES = Ruleset(RULES_PATH)
+
+# Sig højt ved opstart, hvilken database det blev. Uden den linje kunne
+# man ikke se forskel på "kører på Postgres" og "kører på en tom fil"
+# uden at logge ind som curator og slå /api/diagnostik op.
+print(
+    "AllergiScan: database = "
+    + ("sqlite (" + str(DATA_DIR / "allergiscan.db") + ")"
+       if engine.dialect.name == "sqlite" else engine.dialect.name),
+    flush=True,
+)
 
 
 def get_session() -> Session:
