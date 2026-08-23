@@ -221,13 +221,19 @@ footer a{color:var(--muted)}
 
   <!-- ==================== SCAN ==================== -->
   <section id="view-scan">
-    <video id="cam" playsinline muted hidden></video>
+    <!-- Kameraet er BEVIDST placeret efter feltet og hintet, ikke før:
+         tænder det 200-800 ms efter indlæsning (autostartCam()), må det
+         ikke skubbe #ean/#camBtn/#go ned, mens en tommel er på vej mod en
+         af dem. #camBtn er den fyldte knap og #go er ghost, for "Scan" er
+         nu både den primære vej OG vejen tilbage, når autostarten fejler
+         eller skal slukkes igen — se startCam()/stopCam(). -->
     <div class="entry">
       <input id="ean" inputmode="numeric" autocomplete="off" placeholder="5701234567890" aria-label="Stregkode">
-      <button class="btn ghost" id="camBtn">Scan</button>
-      <button class="btn" id="go">Slå op</button>
+      <button class="btn" id="camBtn">Scan</button>
+      <button class="btn ghost" id="go">Slå op</button>
     </div>
     <p class="hint" id="scanHint"></p>
+    <video id="cam" playsinline muted hidden></video>
 
     <section class="card" id="verdict" hidden>
       <div class="slab" id="slab">
@@ -261,7 +267,7 @@ footer a{color:var(--muted)}
       </details>
       <ul class="rows" id="rows"></ul>
       <div class="decl">
-        <h3>Deklaration, som motoren læste den</h3>
+        <h3>Deklaration, som appen læste den</h3>
         <div class="body" id="decl"></div>
       </div>
       <!-- Forklaringen står FØR knapperne, ikke under dem — under folden
@@ -551,18 +557,18 @@ const paintWho = () => {
 const COPY = {
   unsafe:    ['Fundet','Ikke sikker','Mindst ét af de allergener, I holder øje med, står i deklarationen.'],
   caution:   ['Usikker','Skal tjekkes','Spor ifølge etiketten, eller en ingrediens der kan skjule et allergen. Ikke det samme som at det står i deklarationen.'],
-  unverified:['Ikke bekræftet','Ved det ikke','Motoren fandt ingenting — men det er ikke det samme som frit.'],
+  unverified:['Ikke bekræftet','Ved det ikke','Appen fandt ingenting — men den har ikke set pakken. Det er ikke det samme som frit.'],
   safe:      ['Bekræftet','Sikker','Alle valgte allergener er manuelt afkrydset mod emballagen.'],
   unknown:   ['Ukendt vare','Ingen data','Stregkoden findes ikke i Open Food Facts. Fotografér deklarationen.'],
   error:     ['Opslag fejlede','Prøv igen','Serveren kunne ikke nå Open Food Facts. Varen er ikke slået op.'],
   henter:    ['Slår op','Henter …','Varen slås op nu. Vent med at lægge den i kurven.']
 };
-const BASIS = {manual:'bekræftet af et menneske', off_allergen_tag:'allergen-tag fra Open Food Facts',
-  off_trace_tag:'sportag fra Open Food Facts', text_match:'fundet i ingredienslisten',
+const BASIS = {manual:'bekræftet af et menneske', off_allergen_tag:'oplyst af Open Food Facts',
+  off_trace_tag:'spor oplyst af Open Food Facts', text_match:'fundet i ingredienslisten',
   text_maybe:'usikker ingrediens i listen', no_text:'ingen ingrediensliste',
   trace_statement:'SPOR ifølge etiketten — ikke i ingredienslisten',
   trace_unspecified:'etiketten advarer om spor, men siger ikke hvilke',
-  ocr_fuzzy:'omtrentligt match i OCR-tekst — skal efterses',
+  ocr_fuzzy:'ligner et allergen i den læste tekst — skal efterses',
   not_found_in_text:'ikke fundet i teksten'};
 // Delt af visFotos() (nyeste, #fotoRk) og visAlleFotos() (alle,
 // #fotoAlle) — én stavemåde, så de to lister aldrig kan komme til at
@@ -580,6 +586,11 @@ document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav.tabs button').forEach(x =>
     x.setAttribute('aria-current', String(x === b)));
   for(const v of ['scan','filter','prefs']) $('#view-'+v).hidden = (v !== b.dataset.view);
+  // Uden dette kører kameraet videre, mens man kigger på "Filtrér" eller
+  // "Indstillinger" — fanger det en stregkode dér, vibrerer telefonen
+  // uden synlig grund, og der ligger pludselig en dom om en tilfældig
+  // vare, næste gang man åbner "Scan".
+  if(b.dataset.view !== 'scan') stopCam();
   if(b.dataset.view === 'filter') soeg();   // frisk søgning, hver gang fanen åbnes
   window.scrollTo(0,0);
 });
@@ -775,6 +786,12 @@ $('#ean').addEventListener('keydown', e => { if(e.key === 'Enter') lookup(); });
    så vi falder tilbage til zxing-wasm, som ligger lokalt i /static/vendor/.
    Ingen CDN: virker i en kælderbutik uden dækning, og licensen er MIT. */
 let stream = null, zxing = null;
+// camGen tælles op hver gang kameraet slukkes — en igangværende getUserMedia
+// eller zxing-indlæsning, der resolver EFTER det, opdager sig selv forældet
+// og rydder op uden at røre det kamera, der er startet siden. camStarter
+// forhindrer et rent kapløb: to tryk (eller et tryk midt i autostarten),
+// før den første getUserMedia overhovedet har svaret.
+let camGen = 0, camStarter = false;
 
 async function loadZXing(){
   if(zxing) return zxing;
@@ -789,34 +806,81 @@ async function loadZXing(){
 }
 
 function stopCam(){
+  camGen++;                       // dræber enhver løbende tick-løkke og ventende opstart
   stream?.getTracks().forEach(t => t.stop());
   stream = null;
-  $('#cam').hidden = true;
+  const c = $('#cam');
+  c.pause(); c.srcObject = null;   // ellers står sidste billede og en død stream tilbage
+  c.hidden = true;
+  $('#camBtn').textContent = 'Scan';
 }
 
-$('#camBtn').onclick = async () => {
-  const cam = $('#cam');
-  if(stream){ stopCam(); return; }
+/* startCam() er selve kameraopstarten, delt mellem knappen og autostarten
+   nedenfor. `silent` styrer kun fejlbeskeden: fejler autostarten (kameraet
+   optaget, adgang trukket tilbage siden sidst), skal siden ikke se
+   i stykker ud — den falder bare tilbage til knappen uden en advarsel,
+   mens et tryk på knappen selv stadig skal sige fra. */
+async function startCam(silent){
+  if(stream || camStarter) return;   // allerede tændt, eller allerede ved at tænde
+  camStarter = true;
+  const gen = camGen, cam = $('#cam');
+  let s = null;
   try{
-    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
-  }catch{ $('#scanHint').textContent = 'Kameraet fik ikke adgang. Tast koden ind.'; return; }
-  cam.srcObject = stream; cam.hidden = false; await cam.play();
+    s = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+  }catch(err){
+    if(!silent) $('#scanHint').textContent =
+      err.name === 'NotAllowedError'
+        ? 'Kameraet må ikke bruges. Giv appen adgang i telefonens indstillinger — eller tast koden ind.'
+      : (err.name === 'NotReadableError' || err.name === 'AbortError')
+        ? 'Kameraet er optaget af en anden app. Luk den — eller tast koden ind.'
+        : 'Kameraet kunne ikke starte. Tast koden ind.';
+  }finally{
+    camStarter = false;
+  }
+  if(!s) return;
+  if(gen !== camGen){ s.getTracks().forEach(t => t.stop()); return; }  // slukket, mens vi ventede
+  // Kameraet er tændt = vi leder efter en NY vare. LAST står stadig —
+  // fotoknapperne hænger på den — men den FORRIGE doms flade må ikke stå
+  // synlig under søgeren, mens den næste vare fanges.
+  // opslagNr++ : et opslag, der stadig er undervejs, må ikke folde sin dom
+  // ud under en søger, der peger på den NÆSTE vare. lookup() kasserer selv
+  // sit svar, når tælleren er løbet fra den. #confirmPanel er søskende til
+  // #verdict, ikke barn — uden linjen bliver bekræftelsesformularen for den
+  // forrige vare stående under det levende kamerabillede.
+  opslagNr++;
+  $('#confirmPanel').hidden = true;
+  $('#verdict').hidden = true;
+  stream = s;
+  cam.srcObject = s; cam.hidden = false;
+  // Etiketten følger BILLEDET, ikke afkoderen: på iPhone tager første
+  // zxing-indlæsning flere hundrede ms, og i hele det vindue ville
+  // søgeren være levende, mens knappen stadig sagde "Scan".
+  $('#camBtn').textContent = 'Stop';
+  // `if(gen === camGen)`: play() afvises netop NÅR sporene stoppes under
+  // den — altså ved fanebytte eller når telefonen låses. Et ubetinget
+  // stopCam() herfra ville tælle generationen op udefra og dermed dræbe
+  // det NÆSTE kamera, brugeren allerede har bedt om. Vores egen stream er
+  // på den vej allerede stoppet.
+  try{ await cam.play(); }catch{ if(gen === camGen) stopCam(); return; }
 
   const native = 'BarcodeDetector' in window;
   const det = native ? new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e']}) : null;
   const mod = native ? null : await loadZXing().catch(() => null);
+  if(gen !== camGen) return;   // slukket, mens zxing blev hentet
   if(!native && !mod){
     stopCam();
+    // Ikke betinget af silent: brugeren har allerede set videoen blinke op,
+    // og fejlen handler ikke om tilladelse — den skal altid ses.
     $('#scanHint').textContent = 'Kunne ikke starte scanneren. Tast koden ind.';
     return;
   }
-  $('#scanHint').textContent = native ? 'Scanner…' : 'Scanner (zxing)…';
+  $('#scanHint').textContent = 'Scanner …';
 
   const cv = document.createElement('canvas');
   const cx = cv.getContext('2d', {willReadFrequently:true});
 
   const tick = async () => {
-    if(!stream) return;
+    if(gen !== camGen || !stream) return;
     try{
       let code = null;
       if(native){
@@ -831,16 +895,55 @@ $('#camBtn').onclick = async () => {
         if(res.length) code = res[0].text;
       }
       if(code){
+        // Generationen tjekkes IGEN her. Tjekket i toppen af tick() er
+        // forældet: afkodningen ovenfor er et await, og zxing bruger
+        // 100-300 ms på en fuld frame. Skiftede forælderen fane i det
+        // vindue, ville telefonen vibrere uden synlig grund og lægge en
+        // dom om en tilfældig vare i en visning, hun havde forladt.
+        if(gen !== camGen) return;
         stopCam();
         navigator.vibrate?.(60);
         $('#scanHint').textContent = '';
         return lookup(code);
       }
     }catch{ /* enkelte frames fejler, det er normalt */ }
-    setTimeout(() => requestAnimationFrame(tick), native ? 0 : 120);
+    if(gen === camGen) setTimeout(() => requestAnimationFrame(tick), native ? 0 : 120);
   };
   tick();
+}
+
+$('#camBtn').onclick = () => {
+  if(stream){ stopCam(); return; }
+  startCam(false);
 };
+
+/* Kameraet starter kun automatisk, hvis telefonen allerede har givet
+   adgang — ellers spørger getUserMedia med det samme, i det sekund
+   appen åbnes, før nogen har bedt om noget. Safari har ikke 'camera' i
+   Permissions API og kaster her; så lader vi bare knappen virke som hidtil.
+   Kaldes uafhængigt af opstarts-IIFE'en nederst i filen, så et kamerakald
+   aldrig forsinker resten af siden. */
+async function autostartCam(){
+  // Fanen kan ligge i baggrunden, mens browseren genskaber den ved en
+  // genstart — kameraet skal ikke tænde, før nogen rent faktisk kigger.
+  if(document.visibilityState !== 'visible') return;
+  if(!navigator.permissions?.query) return;
+  let status;
+  try{
+    status = await navigator.permissions.query({name:'camera'});
+  }catch{ return; }
+  if(status.state === 'granted') await startCam(true);
+}
+// Sat SYNKRONT, FØR autostartCam() kaldes — ellers kan et opslag, der når
+// at skrive sin egen besked i #scanHint mens autostarten stadig venter på
+// Permissions API, blive overskrevet af denne linje bagefter.
+$('#scanHint').textContent = 'BarcodeDetector' in window
+  ? '' : 'Scanningen er lidt langsommere i denne browser. Hold pakken stille et øjeblik.';
+autostartCam();
+// Kameraet skal ikke filme videre, mens appen ligger i baggrunden.
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState !== 'visible') stopCam();
+});
 
 /* ---------- billeder ---------- */
 function visFotos(d){
@@ -1097,7 +1200,7 @@ $('#frontFile').onchange = async e => {
 
 /* ---------- OCR ---------- */
 const ocrGuard = () => {
-  if(!USER){ $('#scanHint').textContent = 'Log ind under Indstillinger for at bruge OCR.'; return false; }
+  if(!USER){ $('#scanHint').textContent = 'Log ind under Indstillinger for at læse en deklaration.'; return false; }
   return true;
 };
 $('#ocrBtn').onclick     = () => { if(ocrGuard()) $('#ocrFile').click(); };
@@ -1132,9 +1235,26 @@ $('#ocrFile').onchange = $('#ocrPick').onchange = async e => {
   // Samme billede gemmes som deklarationsfoto — så kan I læse etiketten
   // igen derhjemme uden at fotografere den to gange.
   gemFoto(f, 'deklaration');
-  if(!r.ok){ $('#ocrStatus').textContent = 'OCR fejlede ('+r.status+').'; return; }
+  // Statuskoden gives videre, ligesom i gemFoto(): et 48 MP-telefonfoto
+  // sendt uden nedskalering kan ramme rutens 12 MB-loft (413), og en
+  // udløbet session (401) er ikke det samme fejl som dårligt signal — de
+  // to skal ikke begge ende som "prøv igen", det ene råd der garanteret
+  // ikke virker.
+  if(!r.ok){
+    $('#ocrStatus').textContent = r.status === 401
+      ? 'Du er blevet logget ud. Log ind igen under Indstillinger.'
+      : r.status === 413
+        ? 'Billedet er for stort. Tag et nyt tættere på.'
+        : 'Billedet kunne ikke læses. Prøv igen.';
+    return;
+  }
   const d = await r.json();
-  if(!d.ok){ $('#ocrStatus').textContent = d.error; return; }
+  if(!d.ok){
+    // d.error er en rå serverstreng ("Tesseract fejlede: …") og må ikke
+    // vises — familien skal ikke se ordet "Tesseract" eller "containeren".
+    $('#ocrStatus').textContent = 'Billedet kunne ikke læses. Tag et nyt — eller tast deklarationen ind.';
+    return;
+  }
   $('#declEdit').value = d.text;
   // Appen klipper selv ingredienslisten ud af resten af etiketten. Rammer
   // den ved siden af, skal I ikke fotografere igen: hele teksten er her.
@@ -1146,17 +1266,34 @@ $('#ocrFile').onchange = $('#ocrPick').onchange = async e => {
   // de siger "ligner", ikke "er", og skal efterses på den fysiske pakke.
   const flagged = (d.allergens || []).filter(a => a.state === 'contains');
   const approx = flagged.filter(a => a.approximate);
-  $('#ocrStatus').innerHTML = `Sikkerhed ${d.confidence}%. ${esc(d.hint)}`
-    + (flagged.length
-        ? `<br><b>Efterse på pakken:</b> ` + flagged.map(a => {
-            const w = a.evidence?.[0];
-            return esc(a.name) + (a.approximate && w
-              ? ` (OCR læste «${esc(w.excerpt.trim())}»)` : '');
-          }).join(', ')
-        : (d.allergens?.length
-            ? '<br>Motoren fandt ingen af dine allergener — men OCR kan have tabt dem. Læs teksten igennem.'
-            : '<br>Motoren blev slet ikke kørt på det her billede. Læs teksten selv.'))
-    + (approx.length ? '<br>Ordene i citationstegn blev læst upræcist. Tjek dem først.' : '');
+  // Rapidocr scorer 96-98% på næsten alt — også det, der er volapyk — så
+  // tallet er kun information, når det er LAVT (se ocr-deklarationer-
+  // skillen). Et tal der altid siger 97 ligner information uden at være
+  // det, og det står lige over en dom om barnets mad.
+  const usikker = typeof d.confidence === 'number' && d.confidence < 65;
+  const linjer = [];
+  if(usikker) linjer.push(`Læsningen er usikker (${Math.round(d.confidence)} %). `
+    + `Tag gerne et nyt billede tættere på, uden genskin.`);
+  // Reservelæseren blev brugt, fordi den rigtige ikke svarede. Målt på
+  // familiens egne butiksfotos finder den 2,8 gange FÆRRE rigtige danske
+  // ord (se ocr-deklarationer-skillen), så den her læsning er svagere end
+  // normalt — og det skal siges, ikke skjules. Serveren sagde det før i
+  // `hint`; den tekst vises ikke længere, så linjen bor her nu.
+  if(d.engine && d.engine !== 'rapidocr')
+    linjer.push('Appen måtte bruge sin svagere reservelæsning. Læs teksten ekstra grundigt.');
+  if(flagged.length){
+    linjer.push(`<b>Efterse på pakken:</b> ` + flagged.map(a => {
+      const w = a.evidence?.[0];
+      return esc(a.name) + (a.approximate && w
+        ? ` (appen læste «${esc(w.excerpt.trim())}»)` : '');
+    }).join(', '));
+  }else if(d.allergens?.length){
+    linjer.push('Appen fandt ingen af dine allergener — men læsningen kan have tabt dem. Læs teksten igennem.');
+  }else{
+    linjer.push('Appen har slet ikke tjekket det her billede. Læs teksten selv.');
+  }
+  if(approx.length) linjer.push('Ordene i citationstegn blev læst upræcist. Tjek dem først.');
+  $('#ocrStatus').innerHTML = linjer.join('<br>');
 
   // Forudfyld knapperne efter forhåndstjekket, ikke efter den gamle dom.
   // KUN det, motoren fandt, er afgjort. Resten står som ikke afgjort:
@@ -1864,9 +2001,7 @@ $('#relLink').onclick = async e => {
   } catch { /* footeren viser bare navnet uden version */ }
   const at = await (await fetch('/api/attribution')).json();
   const n = at.data_sources?.[0]?.records ?? 0;
-  $('#attrib').textContent = `${n} varer i den lokale cache.`;
-  $('#scanHint').textContent = 'BarcodeDetector' in window
-    ? '' : 'Din browser bruger zxing-fallbacken — den er lidt langsommere.';
+  $('#attrib').textContent = `${n} varer er gemt i appen.`;
 })();
 </script>
 </body>

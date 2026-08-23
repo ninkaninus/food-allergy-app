@@ -76,7 +76,7 @@ To ting må aldrig gå tabt i en ændring:
 Tre visninger, skiftet af `nav.tabs` i bunden (fast, med
 `env(safe-area-inset-bottom)`):
 
-- `#view-scan` — kamera/stregkode, dommen, deklarationen som motoren læste
+- `#view-scan` — kamera/stregkode, dommen, deklarationen som appen læste
   den, fotoknapper, bekræftelsespanelet
 - `#view-filter` — søgning i familiens varer, statuschips, facetter
 - `#view-prefs` — profil, allergener, login, »Nyheder«
@@ -108,9 +108,9 @@ altid være vejen udenom — indtastningsfeltet — synlig samtidig.
   engelske ord i UI'et, hvor der findes et dansk.
 - **Knapper navngiver handlingen**: »Bekræft mod emballagen«, »Fotografér
   deklaration« — ikke »Gem« eller »OK«.
-- **Sig hvad appen ikke ved.** »Motoren fandt ingenting — men det er ikke
-  det samme som frit« er den vigtigste sætning i appen. Bliv ved med at
-  skrive sådan: ærligt, uden at pynte.
+- **Sig hvad appen ikke ved.** »Appen fandt ingenting — men den har ikke
+  set pakken. Det er ikke det samme som frit« er den vigtigste sætning i
+  appen. Bliv ved med at skrive sådan: ærligt, uden at pynte.
 - **Ingen udråbstegn. Ingen emoji.** En rød flade er alvorlig nok i sig selv.
 - Brug familiens ord: vare, deklaration, spor, stregkode, dom — ikke
   »produkt-entitet«, »record«, »verdict object«.

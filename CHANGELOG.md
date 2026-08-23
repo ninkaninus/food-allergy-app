@@ -3,6 +3,43 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.22.0 — 23. august 2026
+
+**Kameraet er tændt, når I åbner appen — og véd nu, hvornår det skal slukke**
+
+I skal ikke længere trykke »Scan« først. Har telefonen allerede givet
+appen lov til at bruge kameraet, står det klar med det samme — det
+tryk, I stod og manglede med én hånd fri i Netto, er væk. Kører det
+allerede, hedder knappen »Stop«, så den altid gør det, den siger. Og
+skifter I til »Filtrér« eller »Indstillinger«, eller lægger telefonen
+fra jer, slukker kameraet af sig selv i stedet for at filme videre uden
+grund. Har I ikke givet lov endnu, sker der ingenting af sig selv: I ser
+præcis det, I plejer, og »Scan«-knappen virker som altid.
+
+Scanner I en ny vare, mens den forrige stadig stod som »Sikker« på
+skærmen, forsvinder den forrige dom, i samme øjeblik kameraet tænder —
+den må aldrig kunne forveksles med varen, I lige har i hånden.
+
+**Et tal, der kun vises, når det betyder noget**
+
+Efter et foto af en deklaration viste appen altid et tal for, hvor godt
+den kunne tyde bogstaverne — også når tallet ikke sagde jer noget, fordi
+det næsten altid ligger omkring 97. Nu står tallet kun der, når
+læsningen rent faktisk er usikker, og så som en klar opfordring: tag et
+nyt billede, tættere på, uden genskin.
+
+**Fejlbeskeder, der siger, hvad I skal gøre**
+
+Gik et foto ikke igennem, kunne beskeden før være en teknisk sætning,
+ingen af jer skulle se. Nu står der altid almindeligt dansk: tag et nyt
+billede tættere på, log ind igen, eller tast teksten ind selv.
+
+**»Motor« og »OCR« er væk fra teksten**
+
+De ord betød ikke noget for jer. Appen taler nu om sig selv som
+»appen«, og om at fotografere en deklaration som at »læse« den —
+samme mening, almindeligt sprog.
+
 ## 0.21.1 — 23. august 2026
 
 **Appen starter ikke længere, hvis den er i tvivl om, hvor jeres data er**
