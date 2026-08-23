@@ -68,13 +68,36 @@ jobs:
         run: docker build -t allergiscan:ci .
       - name: Containeren svarer på /healthz
         run: |
+          # TILLAD_SQLITE=1: appen nægter siden 0.21.1 at starte uden at
+          # vide, hvilken database den kigger i (app/db.py). Her ER en
+          # frisk, tom SQLite-fil det rigtige — vi tester at imaget
+          # starter, ikke at det finder familiens data.
           docker run -d --name ci -p 8000:8000 \
+            -e TILLAD_SQLITE=1 \
             -e COOKIE_SECURE=0 -e CHECK_PWNED_PASSWORDS=0 allergiscan:ci
           for i in $(seq 1 30); do
             curl -fsS http://localhost:8000/healthz && break || sleep 2
           done
           curl -fsS http://localhost:8000/healthz
           docker logs ci
+
+      - name: ... og nægter at starte uden at vide hvilken database
+        run: |
+          # Modprøven. Uden den kunne nogen fjerne vagten i app/db.py, og
+          # alt ville stadig være grønt — mens en manglende DATABASE_URL i
+          # drift igen ville give en tom database og et grønt healthcheck.
+          docker rm -f ci >/dev/null 2>&1 || true
+          docker run -d --name ci2 -p 8001:8000 \
+            -e COOKIE_SECURE=0 -e CHECK_PWNED_PASSWORDS=0 allergiscan:ci
+          sleep 12
+          if curl -fsS --max-time 3 http://localhost:8001/healthz >/dev/null 2>&1; then
+            echo "::error::containeren startede UDEN at vide hvilken database den bruger"
+            docker logs ci2
+            exit 1
+          fi
+          docker logs ci2 2>&1 | grep -q TILLAD_SQLITE \
+            || { echo "::error::opstarten fejlede, men sagde ikke hvorfor"; docker logs ci2; exit 1; }
+          echo "vagten holder: containeren nægter at starte, og siger hvorfor"
 
   byg-og-udgiv:
     # Kun rigtige push til main udgiver — pull requests testes bare.
