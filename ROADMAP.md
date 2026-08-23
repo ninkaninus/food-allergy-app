@@ -188,6 +188,33 @@ appen frem for filsystemet.
 
 ---
 
+## Fremtidig opgave — én database i stedet for to
+
+Bekræftet 23. august 2026: prod kører **Postgres**. Vagten i 0.21.1 er
+beviset — havde `DATABASE_URL` ikke været sat, ville containeren have
+nægtet at starte.
+
+Men koden understøtter stadig begge, og det koster mere, end det ligner:
+
+- **Migreringer skal skrives to gange.** Postgres kan
+  `ALTER TABLE ... DROP CONSTRAINT`; SQLite kan ikke og skal have hele
+  tabellen bygget om. I 0.21.0 var det SQLite-grenen, der havde en test,
+  og Postgres-grenen, der kørte i drift. Vendt på hovedet.
+- **Den testede vej er ikke produktionsvejen.** Fremmednøgler håndhæves
+  ikke på SQLite uden `PRAGMA foreign_keys=ON`. Præcis den forskel gav en
+  500 i drift i 0.20.0, som testene ikke kunne se.
+- **Falsk grønt.** SQLite-testen af fotomigreringen bestod på kode, der
+  slettede alle fotorækker, fordi fiksturet var skrevet i hånden uden de
+  indeks, produktionen har.
+
+**Rækkefølgen betyder noget.** Først testene over på Postgres — en
+`services: postgres` i GitHub Actions og en docker-container lokalt, det
+tager fire sekunder at starte. FØRST derefter kan SQLite-grenen slettes.
+At fjerne kode, man ikke har dækning for, er den forkerte vej rundt.
+
+Prøven, der afgør om det er værd at gøre: kan en fejl i den ene dialekt
+slippe forbi CI? I dag: ja.
+
 ## Ting jeg bevidst har ladet være
 
 **Offline-tilstand.** Du sagde, det ikke er nødvendigt, og en service worker
