@@ -214,7 +214,11 @@ footer a{color:var(--muted)}
   <header class="bar">
     <div class="mark"><img src="/static/icon.svg" alt="">AllergiScan</div>
     <div class="who">
-      <div>Tjekker for <b id="who">—</b></div>
+      <!-- HELE linjen males af paintWho(), ikke kun det fede ord:
+           "Tjekker for ikke valgt endnu" er ikke en dansk sætning, og
+           headeren er det ene sted, en hjælper kan efterprøve, hvad appen
+           overhovedet svarer på. -->
+      <div id="whoLinje">Tjekker for <b id="who">—</b></div>
       <button class="link" id="authBtn">Log ind</button>
     </div>
   </header>
@@ -398,7 +402,19 @@ footer a{color:var(--muted)}
   <!-- ==================== INDSTILLINGER ==================== -->
   <section id="view-prefs" hidden>
     <div class="sec">
-      <h3>Hvad kan hun ikke tåle?</h3>
+      <!-- Samme ord som spørgsmålet på scan-skærmen. Hun bliver sendt
+           herhen af netop det spørgsmål, og "Hvad kan hun ikke tåle?"
+           spurgte om noget andet: "hun" er familiens barn, mens den, der
+           står med telefonen, lige er blevet spurgt, hvad APPEN skal
+           tjekke for. -->
+      <h3>Hvad skal appen tjekke for?</h3>
+      <!-- Under-valget er den farlige retning, denne udgivelse åbner: en
+           liste, der ikke er komplet, giver et mildere svar end før — og
+           det må ikke kun stå i en changelog, ingen læser i Netto. -->
+      <p class="hint" style="margin:0 0 12px">Appen advarer <b>kun</b> om det, der er valgt
+        her. Er et allergen ikke valgt, siger appen ingenting om det — heller ikke når det
+        står i deklarationen. Listen skal være komplet, og er du i tvivl, så tag allergenet
+        med.</p>
       <ul class="chips" id="prefChips"></ul>
       <p class="hint" id="prefHint"></p>
     </div>
@@ -532,7 +548,17 @@ function danskDato(iso, medAar){
 }
 
 /* ---------- lokale valg. Ingen konto, ingen server. ---------- */
-const KEY = 'allergiscan.prefs.v1';
+// v2, ikke v1, og det er en RETTELSE, ikke oprydning: den GAMLE opstart
+// (0.23.0 og tidligere) satte selv alle 17 slugs og kaldte savePrefs(), så
+// hver eneste telefon, der har åbnet appen før i dag, har
+// {"allergens":[alle 17]} liggende under v1. Læste vi den nøgle videre,
+// ville harValgtAllergener() svare "ja" på appens eget gæt, spørgsmålet
+// ville aldrig blive stillet, og familiens egen godkendte vare ville
+// stadig være rød på dagplejerens telefon. Et gemt sæt fra dengang kan
+// ikke skelnes fra automatikken og er derfor ikke et valg, nogen har
+// truffet. Der kasseres intet af værdi: prefs indeholdt kun `allergens`
+// og `name`, og `name` slettes alligevel ved opstart.
+const KEY = 'allergiscan.prefs.v2';
 // Default er TOM, ikke et bestemt sæt. Filen serveres af GET / til
 // enhver, så en hårdkodet liste her ville udstille familiens valg i
 // klartekst — uden at nogen behøvede JS eller en browser. Og det gælder
@@ -586,13 +612,20 @@ const harValgtAllergener = () => effektivAllergener().length > 0;
 // intet er valgt fra.
 const paintWho = () => {
   const sæt = effektivAllergener();
-  $('#who').textContent = !sæt.length
-    ? 'ikke valgt endnu'
+  // Slugs er databasens ord, ikke familiens: der må aldrig komme til at
+  // stå "Tjekker for maelkeprotein, aeg". Kan bare ét navn ikke slås op —
+  // fx fordi /api/allergens ikke svarede — siger linjen antallet i stedet.
+  const navne = sæt.map(s => ALLERGENS.find(a => a.slug === s)?.name);
+  const ord = !sæt.length
+    ? 'Intet valgt endnu'
     : (ALLERGENS.length && sæt.length >= ALLERGENS.length)
       ? 'alle allergener'
-      : sæt.map(s => ALLERGENS.find(a => a.slug === s)?.name || s).join(', ');
+      : navne.every(Boolean)
+        ? navne.join(', ')
+        : `${sæt.length} allergener`;
+  $('#whoLinje').innerHTML = (sæt.length ? 'Tjekker for ' : '') + `<b id="who">${esc(ord)}</b>`;
   // Headeren og spørgsmålet males ét sted, så de aldrig kan komme ud af
-  // trit: står der "ikke valgt endnu" i toppen, SKAL spørgsmålet stå
+  // trit: står der "Intet valgt endnu" i toppen, SKAL spørgsmålet stå
   // nede på scan-skærmen.
   malVaelgPanel();
 };
@@ -603,35 +636,111 @@ const paintWho = () => {
 // spørgsmål, der blinker forbi i 100 ms, mens svaret er på vej, er
 // værre end ingenting.
 let AUTH_AFKLARET = false;
+// Porten, lookup() venter i. autostartCam() kaldes allerede under
+// parsing, mens opstartens tre kald stadig er undervejs — på dårligt net
+// kan kameraet nå at afkode først, og så ville en INDLOGGET telefon med
+// tomt lokalt valg se USER === null, få et tomt sæt og kaste scanningen
+// væk med "Vælg først …". Appen ville svare på et gæt om, hvis sæt der
+// gælder. Løftet erstatter IKKE vagten: den hænger stadig på
+// harValgtAllergener(), så autostarten ikke kan komme uden om den.
+let authKlar;
+const authFaerdig = new Promise(r => { authKlar = r; });
+
+// Vagtens egen besked. Den står i en konstant, fordi den skal kunne
+// TAGES NED igen: bliver den stående, efter hun har valgt, er det eneste
+// på skærmen en opfordring til at gøre det, hun lige har gjort — og den
+// sandsynlige reaktion er at slå FLERE allergener til ("jeg valgte vist
+// ikke nok") eller at scanne igen.
+const VAELG_FOERST = 'Vælg først, hvad appen skal tjekke for.';
+const KLAR_TIL_OPSLAG = 'Klar. Tryk »Slå op« for at se varen.';
+const HENTER_SAET = 'Henter, hvad der skal tjekkes for …';
+// Samme ord i panelets overskrift og i listen — ét spørgsmål, ikke to.
+const SPOERGSMAALET = 'Hvad skal appen tjekke for?';
+
+// Tælleren står her, ikke ved lookup(), fordi glemVistDom() nedenfor
+// bruger den, og den skal være initialiseret, før noget kalder den.
+let opslagNr = 0;
+
+// Grundlaget for den viste dom holdt op med at gælde — så holder dommen
+// op med at være på skærmen. Præcis de tre linjer, startCam() allerede
+// brugte, ét sted:
+//   opslagNr++      et opslag, der stadig er undervejs, må ikke folde sin
+//                   dom ud bagefter; lookup() kasserer selv sit svar.
+//   #confirmPanel   er SØSKENDE til #verdict, ikke barn, og følger ikke med.
+//   #verdict        selve fladen.
+// Uden det kunne en dagplejer se et grønt "SIKKER" om et rugbrød stå
+// uændret, mens appen øverst på samme skærm spurgte, hvad den skulle
+// tjekke for.
+function glemVistDom(){
+  opslagNr++;
+  $('#confirmPanel').hidden = true;
+  $('#verdict').hidden = true;
+}
+
+// De to tekster, et manglende valg siges med. ÉN kilde, fordi spørgsmålet
+// stilles på begge indgange — scan-skærmen og listen — og de to aldrig må
+// kunne sige noget forskelligt til den samme person.
+function vaelgBesked(){
+  // To tilstande, hvor "Vælg allergener" ikke ville føre nogen steder
+  // hen: uden ALLERGENS er chipsene tomme, og for en indlogget telefon
+  // uden svar fra serveren er hvert tryk på en chip en tavs no-op
+  // (if(!PROFILE_ID) return). Så hedder knappen det, den gør.
+  const ingenListe = !ALLERGENS.length;
+  const serverSvigtede = !!USER && SERVER_ALLERGENS === null;
+  const genindlaes = ingenListe || serverSvigtede;
+  // Fire grunde til at sættet er tomt, og de skal siges hver for sig —
+  // "vælg allergener" er et forkert svar til en, hvis netværk lige har
+  // svigtet, og til en hjælper, der ikke må vælge.
+  const tekst = ingenListe
+    ? 'Appen kunne ikke hente listen over allergener fra serveren. Genindlæs siden — '
+      + 'indtil da svarer den ikke på en vare.'
+    : serverSvigtede
+      ? 'Appen kunne ikke hente jeres allergener fra serveren. Genindlæs siden og '
+        + 'prøv igen — indtil da svarer den ikke på en vare.'
+      : !USER
+        ? 'Appen gætter ikke. Vælg de allergener, du skal holde øje med — så svarer '
+          + 'den på præcis dem, og du får det samme svar, som familien selv får.'
+        : KAN_BEKRAEFTE
+          ? 'Der er ikke slået nogen allergener til for jeres husstand. Slå dem til '
+            + 'under Indstillinger — appen svarer ikke på en vare, før mindst ét er valgt.'
+          // Bidragyderen kan ikke selv åbne døren, så sig hvem der kan.
+          : 'Der er ikke slået nogen allergener til endnu, og det er familien, der slår '
+            + 'dem til under Indstillinger. Sig til dem — indtil da svarer appen ikke '
+            + 'på en vare.';
+  const knap = genindlaes
+    ? 'Genindlæs siden'
+    // En bidragyder må læse sættet, ikke sætte det (se paintPrefChips) —
+    // så lov hende ikke et valg, chipsene alligevel ikke lader hende træffe.
+    : (USER && !KAN_BEKRAEFTE) ? 'Se indstillinger' : 'Vælg allergener';
+  return {tekst, knap, genindlaes};
+}
 
 function malVaelgPanel(){
   if(!AUTH_AFKLARET) return;
   const mangler = !harValgtAllergener();
   $('#vaelgPanel').hidden = !mangler;
-  if(!mangler) return;
-  // Tre grunde til at sættet er tomt, og de skal siges hver for sig —
-  // "vælg allergener" er et forkert svar til en, hvis netværk lige har
-  // svigtet, og til en hjælper, der ikke må vælge.
-  $('#vaelgTekst').textContent = !USER
-    ? 'Appen gætter ikke. Vælg de allergener, du skal holde øje med — så svarer '
-      + 'den på præcis dem, og du får det samme svar, som familien selv får.'
-    : SERVER_ALLERGENS === null
-      ? 'Appen kunne ikke hente jeres allergener fra serveren. Genindlæs siden og '
-        + 'prøv igen — indtil da svarer den ikke på en vare.'
-      : 'Der er ikke slået nogen allergener til for jeres husstand. Appen svarer '
-        + 'ikke på en vare, før mindst ét er valgt.';
-  // En bidragyder må læse sættet, ikke sætte det (se paintPrefChips) —
-  // så lov hende ikke et valg, chipsene alligevel ikke lader hende
-  // træffe.
-  $('#vaelgGo').textContent = (USER && !KAN_BEKRAEFTE) ? 'Se indstillinger' : 'Vælg allergener';
+  if(!mangler){
+    // Vagtens besked blev usand i samme sekund, valget blev truffet.
+    // Stregkoden står stadig i #ean, så "Slå op" virker med det samme.
+    if($('#scanHint').textContent === VAELG_FOERST)
+      $('#scanHint').textContent = $('#ean').value ? KLAR_TIL_OPSLAG : '';
+    return;
+  }
+  // Sættet er tomt — og en dom på skærmen er regnet ud fra et sæt, der
+  // ikke længere gælder. Den ryger væk her, uanset hvilken vej den blev
+  // tom (logget ud, chip slået fra, serveren svigtede).
+  glemVistDom();
+  const b = vaelgBesked();
+  $('#vaelgTekst').textContent = b.tekst;
+  $('#vaelgGo').textContent = b.knap;
+  $('#vaelgGo').onclick = b.genindlaes ? () => location.reload() : gaaTilAllergenvalg;
 }
 
 // Scan-skærmens svar på et tomt sæt. Søgningen har sit eget, inde i
 // soeg(), fordi den bor i en anden visning — men vagten er den samme,
 // og den skal stå begge steder.
 function spoergOmAllergener(){
-  $('#verdict').hidden = true;
-  malVaelgPanel();
+  malVaelgPanel();     // skjuler også dommen, se glemVistDom()
   $('#vaelgPanel').scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 
@@ -727,8 +836,6 @@ function visSlab(r, forklaring){
   $('#verdict').hidden = false;
 }
 
-let opslagNr = 0;
-
 async function lookup(code){
   const mit = ++opslagNr;
   const ean = String(code ?? $('#ean').value).replace(/\D/g,'');
@@ -741,11 +848,17 @@ async function lookup(code){
   // Den gamle dom ryger væk FØR kaldet, ikke efter svaret.
   LAST = null;
   $('#scanHint').textContent = '';
+  // Appen svarer ikke, før den ved, HVIS sæt der gælder — se authFaerdig.
+  // Her ventes der kun; vagten nedenfor er stadig den, der afgør.
+  if(!AUTH_AFKLARET) $('#scanHint').textContent = HENTER_SAET;
+  await authFaerdig;
+  if(mit !== opslagNr) return;      // en nyere scanning har overhalet
+  if($('#scanHint').textContent === HENTER_SAET) $('#scanHint').textContent = '';
   // Vagten står FØR "Henter …": appen må hverken gætte på alle 17 eller
   // sende et tomt sæt (serveren svarer 400). Stregkoden bliver stående i
   // feltet, så "Slå op" virker, i samme øjeblik hun har valgt.
   if(!harValgtAllergener()){
-    $('#scanHint').textContent = 'Vælg først, hvad appen skal tjekke for.';
+    $('#scanHint').textContent = VAELG_FOERST;
     spoergOmAllergener();
     return;
   }
@@ -936,14 +1049,11 @@ async function startCam(silent){
   // Kameraet er tændt = vi leder efter en NY vare. LAST står stadig —
   // fotoknapperne hænger på den — men den FORRIGE doms flade må ikke stå
   // synlig under søgeren, mens den næste vare fanges.
-  // opslagNr++ : et opslag, der stadig er undervejs, må ikke folde sin dom
-  // ud under en søger, der peger på den NÆSTE vare. lookup() kasserer selv
-  // sit svar, når tælleren er løbet fra den. #confirmPanel er søskende til
-  // #verdict, ikke barn — uden linjen bliver bekræftelsesformularen for den
-  // forrige vare stående under det levende kamerabillede.
-  opslagNr++;
-  $('#confirmPanel').hidden = true;
-  $('#verdict').hidden = true;
+  // glemVistDom(): et opslag, der stadig er undervejs, må ikke folde sin
+  // dom ud under en søger, der peger på den NÆSTE vare — og
+  // bekræftelsesformularen for den forrige vare må ikke blive stående
+  // under det levende kamerabillede. Se funktionen for de tre linjer.
+  glemVistDom();
   stream = s;
   cam.srcObject = s; cam.hidden = false;
   // Etiketten følger BILLEDET, ikke afkoderen: på iPhone tager første
@@ -1687,13 +1797,21 @@ async function soeg(){
   if(!harValgtAllergener()){
     $('#sStatus').innerHTML = '';
     $('#sFri').innerHTML = '';
+    // …og selve boksen, ikke kun chipsene: ellers står overskriften
+    // "FRI FOR" tilbage med tomrum under sig.
+    $('#sFriBox').hidden = true;
     $('#sKatBox').hidden = true;
     $('#sHint').textContent = '';
-    $('#sCount').textContent = 'Vælg først, hvad appen skal tjekke for.';
-    $('#sHits').innerHTML = '<li class="none"><span>Appen gætter ikke på, hvad den '
-      + 'skal tjekke for — en liste uden det valg ville enten advare om alt eller '
-      + 'om ingenting.</span><button class="link" id="sVaelg">Vælg allergener</button></li>';
-    $('#sVaelg').onclick = gaaTilAllergenvalg;
+    // Ét spørgsmål, ét sted formuleret — se vaelgBesked(). Listen sagde
+    // før "Vælg allergener" til alle, også til en bidragyder, der ikke
+    // må vælge. Knappen er .btn ligesom i panelet: samme handling, samme
+    // vægt, samme trykflade — ikke 18px underlinjet tekst ude ved kanten.
+    const b = vaelgBesked();
+    $('#sCount').textContent = SPOERGSMAALET;
+    $('#sHits').innerHTML = `<li style="display:block;border-bottom:0;padding:14px 0">
+        <p class="hint" style="margin:0 0 12px">${esc(b.tekst)}</p>
+        <button class="btn" id="sVaelg">${esc(b.knap)}</button></li>`;
+    $('#sVaelg').onclick = b.genindlaes ? () => location.reload() : gaaTilAllergenvalg;
     return;
   }
   const p = new URLSearchParams({
@@ -1723,6 +1841,7 @@ async function soeg(){
   });
 
   // fri for: allergenerne fra regelsættet
+  $('#sFriBox').hidden = false;   // vagten ovenfor kan have skjult den
   $('#sFri').innerHTML = ALLERGENS.map(a => chip(a.name, soegState.fri.has(a.slug))).join('');
   [...$('#sFri').querySelectorAll('.chip')].forEach((b, i) => b.onclick = () => {
     const s = ALLERGENS[i].slug;
@@ -1868,6 +1987,12 @@ function paintPrefChips(){
         prefs.allergens = til ? [...prefs.allergens, s] : prefs.allergens.filter(x => x !== s);
         savePrefs();
       }
+      // Sættet er lige ændret, og en dom på scan-skærmen er regnet ud fra
+      // det GAMLE. Ét allergen mere kan gøre en grøn vare rød, så fladen
+      // må ikke blive stående og svare på et spørgsmål, ingen længere
+      // stiller. (malVaelgPanel() gør det samme, men kun når sættet blev
+      // TOMT — her gælder det hver eneste ændring.)
+      glemVistDom();
       paintPrefChips();
       paintWho();
     });
@@ -1902,8 +2027,14 @@ function paintPrefChips(){
 
 /* ---------- auth ---------- */
 async function refreshAuth(){
-  const d = await (await fetch('/api/auth/me')).json();
-  USER = d.authenticated ? d : null;
+  // Svigter kaldet her, må porten ikke blive stående lukket: lookup()
+  // venter på authFaerdig, og et opslag, der hænger for evigt, er en
+  // scanning, der forsvinder lydløst. Intet svar behandles som "ikke
+  // logget ind" — så falder appen tilbage til browserens eget valg, og
+  // er der ikke truffet et, SPØRGER den.
+  let d = null;
+  try { d = await (await fetch('/api/auth/me')).json(); } catch { d = null; }
+  USER = d?.authenticated ? d : null;
   // En inviteret bidragyder er logget ind (USER er sat), men må ikke
   // bekræfte. KAN_BEKRAEFTE er det ene flag, alt andet i scriptet skal
   // spørge — se koblingLinje(), openConfirm(), soeg() og opstarten.
@@ -1929,7 +2060,14 @@ async function refreshAuth(){
   // delt telefon ikke beholder familiens sæt, efter den logger ud.
   if(USER){
     try {
-      const profiler = await (await fetch('/api/profiles')).json();
+      const r = await fetch('/api/profiles');
+      // Uden dette svarer en 401 eller en 500 med gyldig JSON (FastAPIs
+      // {"detail": …}), profiler[0] bliver undefined, og SERVER_ALLERGENS
+      // sættes til [] — så står der "der er ikke slået nogen allergener
+      // til for jeres husstand", når problemet er, at serveren ikke
+      // svarede. De to ting skal siges hver for sig.
+      if(!r.ok) throw new Error(r.status);
+      const profiler = await r.json();
       const p0 = profiler[0];
       PROFILE_ID = p0?.id ?? null;
       SERVER_ALLERGENS = p0 ? p0.allergens.filter(a => a.active).map(a => a.slug) : [];
@@ -1942,10 +2080,18 @@ async function refreshAuth(){
     SERVER_ALLERGENS = null;
   }
   // Først her ved appen, hvis sæt der gælder — og først herfra må
-  // spørgsmålet vises, se malVaelgPanel().
+  // spørgsmålet vises, se malVaelgPanel(). authKlar() lukker samtidig et
+  // opslag igennem, der ventede på svaret (se authFaerdig og lookup()).
   AUTH_AFKLARET = true;
+  authKlar();
   paintWho();
   paintPrefChips();
+  // Listen er den ANDEN flade, der viser domme, og den males kun, når
+  // fanen åbnes. Står den åben, mens sættet skifter — en session, der
+  // udløber — ville den blive stående med domme regnet ud fra det gamle
+  // sæt. Samme fejl som den grønne flade på scan-skærmen, se
+  // glemVistDom(); soeg() stiller selv spørgsmålet, hvis sættet er tomt.
+  if(!$('#view-filter').hidden) soeg();
 
   // Afsnittet findes kun for admin — knappen kalder aldrig engang
   // endepunktet, så der er intet at lække, selv hvis nogen skulle fjerne
@@ -2105,7 +2251,18 @@ $('#relLink').onclick = async e => {
   // denne telefon besøgte appen. Ryd det FØR første savePrefs(), så det
   // ikke skrives tilbage endnu en gang.
   delete prefs.name;
-  ALLERGENS = await (await fetch('/api/allergens')).json();
+  // Uden try/catch kastede IIFE'en her: refreshAuth() blev aldrig kaldt,
+  // AUTH_AFKLARET blev aldrig sand, malVaelgPanel() returnerede for evigt
+  // uden at vise noget — og lookup() ville vente på en port, der aldrig
+  // åbnede. Appen skal sige, at den ikke kan svare, ikke tie.
+  try {
+    const r = await fetch('/api/allergens');
+    if(!r.ok) throw new Error(r.status);
+    const liste = await r.json();
+    ALLERGENS = Array.isArray(liste) ? liste : [];
+  } catch {
+    ALLERGENS = [];   // vaelgBesked() har sin egen gren for det
+  }
   // Kun det LOKALE valg her — er nogen logget ind, henter refreshAuth()
   // familiens sæt fra serveren og maler #who/#prefChips selv, og det
   // sæt vinder. Filtreringen holder localStorage rent for allergener,
@@ -2120,7 +2277,11 @@ $('#relLink').onclick = async e => {
   // hvis sæt der gælder.
   savePrefs();
 
-  await refreshAuth();
+  // finally, ikke bare await: kaster noget herinde, skal porten alligevel
+  // åbne. Et opslag, der venter for evigt, er en tabt scanning — og appen
+  // falder så tilbage på at SPØRGE, hvilket er den sikre retning.
+  try { await refreshAuth(); }
+  finally { AUTH_AFKLARET = true; authKlar(); paintWho(); }
   try {
     const v = await (await fetch('/api/version')).json();
     $('#verTag').textContent = `AllergiScan v${v.version}`;

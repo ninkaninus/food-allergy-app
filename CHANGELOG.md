@@ -3,27 +3,46 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
-## 0.23.1 — 3. september 2026
+## 0.24.0 — 3. september 2026
 
-**Appen spørger nu, hvad den skal tjekke for — den gætter ikke**
+**Appen spørger nu, hvad den skal tjekke for — og I skal svare én gang
+på hver telefon**
 
 Åbnede man appen på en telefon uden login — dagplejerens, en ny telefon,
 eller efter at have logget ud — slog appen i al stilhed alle 17
 allergener til. Det lyder forsigtigt, men det var det ikke: et rugbrød,
 I selv havde bekræftet uden mælk og æg, kom op som »Ikke sikker«, fordi
 der er gluten i rugmel. Hun fik altså at vide, at en vare, I havde
-godkendt, ikke måtte spises — og det samme skete i listen under
-»Filtrér«, hvor den slet ikke blev talt med under »Sikre«.
+godkendt, ikke måtte spises. Det samme skete i listen under »Filtrér«,
+hvor varen slet ikke blev talt med under »Sikre«.
 
-Nu spørger appen i stedet. Er der ikke valgt noget, står der »Hvad skal
-appen tjekke for?« på scan-skærmen, og der kommer intet svar på en vare,
-før valget er truffet. Vælgeren er den samme som altid, under
-Indstillinger. Vælger hun de samme allergener som jer, får hun nøjagtig
-det samme svar som jeres egen telefon — også de grønne, I selv har
-bekræftet mod emballagen.
+**Det her skal I gøre, én gang på hver telefon:** åbn »Indstillinger« og
+tryk på de allergener, appen skal holde øje med — også på dagplejerens
+telefon. Indtil det er gjort, står der »Hvad skal appen tjekke for?« på
+scan-skærmen og det samme spørgsmål øverst i listen under »Filtrér«, og
+appen svarer ikke på en vare. Er I logget ind, kommer sættet fra
+serveren som hidtil, og så skal I ikke gøre noget.
 
-Er I logget ind, mærker I ingen forskel: jeres fælles sæt kommer fra
-serveren som hidtil, og det er stadig kun jer, der kan ændre det.
+Alle telefoner skal svare — også dem, der har brugt appen længe. Det,
+der lå gemt i telefonen før i dag, var appens eget gæt på alle 17 og
+ikke et valg, nogen havde truffet, så det er kasseret.
+
+**Appen advarer kun om det, I har valgt.** Det er den vigtigste sætning i
+denne opdatering. Er et allergen ikke valgt, siger appen ingenting om
+det — heller ikke når det står i deklarationen. Derfor står listen nu
+under overskriften »Hvad skal appen tjekke for?«, med den samme
+påmindelse over knapperne: listen skal være komplet, og er I i tvivl, så
+tag allergenet med.
+
+To ting mere, I kan mærke:
+
+- Ændrer I, hvad der tjekkes for — eller logger ud — forsvinder svaret på
+  den vare, der står på skærmen. Det var regnet ud fra det gamle valg, og
+  et grønt »Sikker« om et rugbrød måtte ikke blive stående, mens appen
+  øverst på samme skærm spurgte, hvad den skulle tjekke for.
+- Kan appen ikke hente jeres allergener fra serveren, siger den det og
+  beder jer genindlæse siden — i stedet for at påstå, at I ikke har
+  slået nogen til.
 
 Det ene, der ikke kan ske: intet valgt kommer aldrig til at betyde »tjek
 ingenting«. Appen svarer hellere slet ikke end at svare på et gæt — og

@@ -25,6 +25,13 @@ jobs:
       # font — lokalt springes de over, her kører de altid.
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends
              tesseract-ocr tesseract-ocr-dan fonts-dejavu-core
+      # Frontendens vagter køres i node med en DOM-stub
+      # (tests/frontend_stub.mjs). De springes over, hvis node mangler —
+      # og en oversprunget test er ikke en grøn test, så den installeres
+      # eksplicit i stedet for at stole på kørerens billede.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - run: pip install -r requirements.txt pytest
       - run: pytest tests/ -q
 

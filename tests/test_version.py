@@ -103,10 +103,20 @@ def test_ingen_udgivelse_forsvinder_ud_af_changeloggen():
     familien, ingen post havde. `test_version_har_en_changelog_post`
     fangede det ikke, fordi den kun ser på den AKTUELLE version.
 
-    Sammenligningen sker mod `HEAD`, altså mod det, der sidst blev
-    committet. I CI, hvor HEAD ER den commit, der testes, er den derfor
-    en no-op — den er skrevet for at fange fejlen dér, hvor den laves:
-    lokalt, før noget bliver skubbet.
+    Sammenligningen sker mod `origin/main` — ikke mod `HEAD`. Push til
+    main ER udgivelsen (se CLAUDE.md), så det er dér, grænsen går mellem
+    "familien har set posten" og "den ligger stadig kun her". En post,
+    der er committet lokalt men aldrig skubbet, må gerne skrives om: det
+    er stadig den samme, uudgivne ændring, og to poster om den ville
+    fortælle familien om en tilstand, deres telefon aldrig har været i.
+    Det skete konkret 3. september 2026, hvor 0.23.1's post blev afløst
+    af 0.24.0's, fordi 0.23.1 aldrig blev skubbet.
+
+    Findes `origin/main` ikke (frisk klon uden remote, eller en CI-kører
+    med kun én commit), falder den tilbage til `HEAD` og er dermed mindst
+    lige så streng som før. I CI, hvor HEAD ER den commit, der testes, er
+    den en no-op — den er skrevet for at fange fejlen dér, hvor den
+    laves: lokalt, før noget bliver skubbet.
     """
     import re
     import subprocess
@@ -116,17 +126,20 @@ def test_ingen_udgivelse_forsvinder_ud_af_changeloggen():
     def versioner(tekst: str) -> set[str]:
         return set(re.findall(r"^## (\d+\.\d+\.\d+)", tekst, re.M))
 
-    r = subprocess.run(["git", "show", "HEAD:CHANGELOG.md"],
-                       capture_output=True, text=True, cwd=rod)
-    if r.returncode != 0:
-        pytest.skip("intet git-HEAD at sammenligne med")
+    for ref in ("origin/main", "HEAD"):
+        r = subprocess.run(["git", "show", f"{ref}:CHANGELOG.md"],
+                           capture_output=True, text=True, cwd=rod)
+        if r.returncode == 0:
+            break
+    else:
+        pytest.skip("intet udgivet CHANGELOG.md at sammenligne med")
 
     foer = versioner(r.stdout)
     nu = versioner((rod / "CHANGELOG.md").read_text(encoding="utf-8"))
     tabt = foer - nu
     assert not tabt, (
-        f"disse udgivelser har mistet deres changelog-post: {sorted(tabt)}. "
-        "En post, familien allerede har fået at se, må ikke fjernes — og en "
-        "slettet overskrift lader afsnittene nedenunder tilhøre den forkerte "
-        "udgivelse."
+        f"disse UDGIVNE versioner har mistet deres changelog-post: {sorted(tabt)}. "
+        "En post, familien allerede har fået at se (altså skubbet til main), "
+        "må ikke fjernes — og en slettet overskrift lader afsnittene "
+        "nedenunder tilhøre den forkerte udgivelse."
     )

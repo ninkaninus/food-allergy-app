@@ -370,24 +370,47 @@ def test_kameraet_skjuler_forrige_doms_flade_naar_det_taender():
     """
     html = _forsiden()
     krop = _funktionskrop(html, "async function startCam(silent){", "\n}\n\n$('#camBtn')")
-    assert "$('#verdict').hidden = true;" in krop
-    assert krop.index("$('#verdict').hidden = true;") < krop.index("stream = s;"), (
+    assert "glemVistDom();" in krop, "kameraet rydder ikke den forrige vares dom væk"
+    assert krop.index("glemVistDom();") < krop.index("stream = s;"), (
         "dommen skjules ikke, før kameraet rent faktisk vises — der kan "
         "nå at stå et billede med begge dele synlige"
     )
-    # At skjule fladen er ikke nok. Et opslag, der stadig er undervejs,
-    # sætter den synlig igen fra sin egen fetch-fortsættelse (visSlab og
-    # render), som intet ved om kameraet. På mobildata i en butik er det
-    # normalen, ikke kanten.
+
+
+def test_den_forrige_doms_oprydning_er_ET_sted():
+    """
+    De tre linjer hører sammen og skal blive ved med at gøre det.
+    Kameraet var før det eneste sted, de stod; nu kalder også
+    malVaelgPanel() og chip-klikket dem, fordi grundlaget for en vist dom
+    kan holde op med at gælde uden at nogen scanner noget.
+
+    - opslagNr++ : et opslag, der stadig er undervejs, sætter ellers
+      fladen synlig igen fra sin egen fetch-fortsættelse (visSlab og
+      render), som intet ved om, at spørgsmålet er blevet stillet. På
+      mobildata i en butik er det normalen, ikke kanten.
+    - #confirmPanel er SØSKENDE til #verdict, ikke barn, og følger ikke
+      med, når kortet skjules.
+    """
+    krop = _funktionskrop(_forsiden(), "function glemVistDom(){", "\n}")
     assert "opslagNr++;" in krop, (
-        "et opslag undervejs kan stadig folde sin dom ud under en søger, "
-        "der peger på den næste vare"
+        "et opslag undervejs kan stadig folde sin dom ud bagefter"
     )
-    # #confirmPanel er SØSKENDE til #verdict, ikke barn — den følger ikke med.
     assert "$('#confirmPanel').hidden = true;" in krop, (
-        "bekræftelsesformularen for den forrige vare bliver stående under "
-        "det levende kamerabillede"
+        "bekræftelsesformularen for den forrige vare bliver stående"
     )
+    assert "$('#verdict').hidden = true;" in krop, "selve fladen bliver stående"
+
+    # …og de tre kaldes fra hvert af de steder, hvor grundlaget kan falde bort.
+    html = _forsiden()
+    for start, slut, hvor in [
+        ("function malVaelgPanel(){", "\n}", "spørgsmålet stilles"),
+        ("$('#prefChips').querySelectorAll('.chip').forEach", "\n    });",
+         "et allergen slås til eller fra"),
+    ]:
+        assert "glemVistDom();" in _funktionskrop(html, start, slut), (
+            f"dommen bliver stående, når {hvor} — se "
+            "tests/test_frontend_adfaerd.py for adfærden"
+        )
 
 
 # --- kameraet skal slukke, når man ikke kigger ----------------------------
@@ -514,17 +537,49 @@ def test_spoergsmaalet_findes_og_ligner_ikke_en_dom():
     assert "data-r" not in panel and "slab" not in panel, (
         "spørgsmålet har fået en domsfarve"
     )
+    # Markup alene beviser ingenting: en domsfarve ville komme fra CSS'en.
+    # `#vaelgPanel{background:var(--unsafe)}` består en markup-test og
+    # maler et ubesvaret spørgsmål rødt.
+    css = _funktionskrop(html, "<style>", "</style>")
+    for selektor, regel in re.findall(r"([^{}]*)\{([^{}]*)\}", css):
+        if "#vaelgPanel" not in selektor:
+            continue
+        for token in ("--unsafe", "--caution", "--safe", "--unverified"):
+            assert token not in regel, (
+                f"spørgsmålet males med domsfarven {token} i CSS-reglen "
+                f"«{selektor.strip()}» — et ubesvaret spørgsmål må ikke "
+                "ligne et svar"
+            )
 
 
-def test_headeren_indroemmer_at_der_ikke_er_valgt_noget():
+def test_headeren_kan_ikke_laese_et_tomt_saet_som_alle_allergener():
     """
     Før stod der "Tjekker for: alle allergener" på en telefon, hvor
     ingen havde valgt noget. Det var ikke bare upræcist — det var det
     svar, der gjorde familiens egen godkendte vare rød.
+
+    Testen påstår om BETINGELSEN, ikke om rækkefølgen af to strenge i en
+    ternær: "alle allergener" kræver, at der overhovedet ER en liste at
+    være alle af. Uden `ALLERGENS.length &&` giver et tomt sæt og en tom
+    liste tilsammen 0 >= 0 — altså "alle allergener" om ingenting, netop
+    når /api/allergens er den, der har svigtet.
+
+    Hvad headeren så rent faktisk skriver, er efterprøvet ved at KØRE
+    modulet: tests/test_frontend_adfaerd.py, scenen "headeren".
     """
     html = _forsiden()
-    assert "'ikke valgt endnu'" in html
     krop = _funktionskrop(html, "const paintWho = () => {", "\n};")
-    assert krop.index("'ikke valgt endnu'") < krop.index("'alle allergener'"), (
-        "det tomme sæt læses stadig som 'alle allergener'"
+    i = krop.find("'alle allergener'")
+    assert i != -1, "headeren har ikke længere en gren for det fulde sæt"
+    betingelse = krop[max(0, i - 160):i]
+    assert "ALLERGENS.length &&" in betingelse, (
+        "'alle allergener' er ikke betinget af, at der ER en liste — et "
+        "tomt sæt og en tom liste ville læses som 'alle'"
+    )
+    assert ">= ALLERGENS.length" in betingelse, (
+        "'alle allergener' måles ikke længere mod hele regelsættet"
+    )
+    # Slugs er databasens ord: der må aldrig stå "Tjekker for maelkeprotein".
+    assert "|| s" not in krop, (
+        "headeren falder tilbage til slug'en, når et navn ikke kan slås op"
     )

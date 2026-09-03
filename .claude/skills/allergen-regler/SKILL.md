@@ -6,7 +6,7 @@ description: Hvordan AllergiScans regelmotor faktisk læser en deklaration — m
 # Regelmotorens mekanik
 
 Efterprøvet mod koden 21. august 2026 (efter 0.19.0); afsnittet »Sættet, der
-vurderes« er efterprøvet 3. september 2026 (0.23.1). **Ændrer du mekanikken,
+vurderes« er efterprøvet 3. september 2026 (0.24.0). **Ændrer du mekanikken,
 ændrer du denne fil i samme commit** — ellers gætter næste session på noget,
 der ikke er sandt.
 
@@ -50,7 +50,7 @@ Rækkefølgen ER reglen. Bytter du om på trinnene, ændrer du domme:
 `aggregate()` samler til `unsafe` / `caution` / `safe` / `unverified`.
 `safe` kræver at ALLE valgte allergener står som `FREE` **og** `MANUAL`.
 
-### Sættet, der vurderes, er en del af dommen (0.23.1)
+### Sættet, der vurderes, er en del af dommen (0.24.0)
 
 Fordi `aggregate()` kræver ALLE vurderede allergener, er listen af slugs
 lige så domsbærende som teksten. Samme vare, samme database, to sæt:
@@ -75,7 +75,47 @@ opstarten i `index.html` tavst en frisk telefon uden login til alle 17,
 og en dagplejer fik derfor »Ikke sikker« på et brød, familien selv havde
 godkendt. Nu spørger appen (`harValgtAllergener()` + vagt i både
 `lookup()` og `soeg()`); `tests/test_udlogget_allergensaet.py` holder
-begge indgange og begge retninger fast.
+begge indgange og begge retninger fast på serversiden.
+
+Fem ting i frontend hører til mekanikken og er lige så domsbærende som
+vagten selv (0.24.0). Alle fem er efterprøvet ved at KØRE modulet i node
+med en DOM-stub — `tests/frontend_stub.mjs` + `tests/test_frontend_adfaerd.py`,
+ni scener, som alle fejler mod 0.23.1's `index.html`:
+
+1. **`glemVistDom()` er ét sted.** Grundlaget for en vist dom kan holde op
+   med at gælde, uden at nogen scanner noget: hun logger ud, eller hun
+   slår et allergen til. Så ryger dommen af skærmen — `opslagNr++`,
+   `#confirmPanel` og `#verdict`. Kaldes fra `startCam()`,
+   `malVaelgPanel()`s mangler-gren og chip-klikket i `paintPrefChips()`.
+   Uden det kunne et grønt »SIKKER« om et rugbrød stå uændret, mens appen
+   øverst på samme skærm spurgte, hvad den skulle tjekke for.
+2. **`localStorage`-nøglen hedder `allergiscan.prefs.v2`.** v1 indeholder
+   på hver eneste telefon, der har åbnet 0.23.0 eller tidligere,
+   `{"allergens":[alle 17]}` — den GAMLE opstart skrev dem selv med
+   `savePrefs()`. Læses v1 videre, svarer `harValgtAllergener()` »ja« på
+   appens eget gæt, og spørgsmålet bliver aldrig stillet. **Bumper du
+   sættets betydning igen, skal nøglen bumpes med.**
+3. **`lookup()` venter på `authFaerdig`**, før vagten prøves.
+   `autostartCam()` kaldes under parsing og kan afkode en stregkode, før
+   `/api/auth/me` har svaret; uden porten ville en indlogget telefon med
+   tomt lokalt valg se `USER === null` og kaste scanningen væk. Porten
+   åbnes i `refreshAuth()` OG i opstartens `finally`, og `/api/allergens`
+   og `/api/auth/me` er begge pakket ind — en lukket port er en scanning,
+   der forsvinder lydløst.
+4. **Vagtens besked er en konstant (`VAELG_FOERST`), fordi den skal kunne
+   tages ned igen.** Bliver den stående, efter hun har valgt, er det
+   eneste på skærmen en opfordring til at gøre det, hun lige har gjort —
+   og den sandsynlige reaktion er at slå FLERE allergener til.
+5. **`vaelgBesked()` er den ene kilde til de to tekster** på begge
+   indgange. En bidragyder må ikke loves et valg, chipsene ikke lader
+   hende træffe, og en 401 fra `/api/profiles` må ikke ligne »ingen
+   allergener slået til« — den skal sige, at det er serveren, der ikke
+   svarede (`if(!r.ok) throw` i `refreshAuth()`).
+
+**Retningen, sættet åbner:** et smallere sæt advarer om MINDRE end alle
+17. Det er kun i orden, fordi et menneske udtrykkeligt har valgt det —
+derfor står »appen advarer kun om det, der er valgt her« over chipsene i
+`#view-prefs`, og derfor må intet i koden fylde sættet ud på egen hånd.
 
 ## De fem mekanismer, der ser mærkelige ud
 
