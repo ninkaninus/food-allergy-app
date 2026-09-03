@@ -84,10 +84,38 @@ køber jeg i stedet for smør« står i deres eget regneark, i deres egne ord, o
 varer de selv har valideret. Det er genkaldelse i reneste form: ingen ny
 datakilde, ingen ny tabel, ingen ny dom.
 
-**Kontrol før trin 1 bygges:** hvor mange af de 583 rækker har faktisk noget
-i `erstatning_for`? Er svaret »en håndfuld«, er trin 1 en anden funktion end
-beskrevet her. Det kan ikke afgøres fra repoet — regnearket er familiens egne
-data og er gitignoreret.
+**Kontrollen er lavet 3. september 2026** mod den rigtige import i
+`data-runtime`. Svaret gør trin 1 MINDRE, ikke større:
+
+| Hylde | Rækker | Med `erstatning_for` | Med EAN |
+|---|---|---|---|
+| **Erstatningsprodukter** | 41 | **40** | 0 |
+| Pålæg | 194 | 0 | 0 |
+| Bagning | 112 | 0 | 0 |
+| Brød | 67 | 0 | 0 |
+| Ris, Pasta og lignende | 57 | 0 | 0 |
+| Diverse | 39 | 0 | 0 |
+| Frugtgrønt | 34 | 0 | 0 |
+| Snacks P | 19 | 0 | 0 |
+| Kiks P | 13 | 0 | 0 |
+| Drikkelse | 7 | 0 | 0 |
+
+583 rækker i alt, 40 med erstatning, 10 hylder. Kolonnen er ikke spredt ud —
+den er samlet på ÉN hylde, »Erstatningsprodukter«, hvor 40 af 41 rækker har
+den udfyldt. De første poster i kolonnen er ordret **»Smør«** og **»Smørbar
+smør«**: præcis det spørgsmål, der startede sagen.
+
+**Ingen af de 583 rækker har en EAN.** Produktejerens modforslag — at knytte
+stregkoder ved køkkenbordet — har haft nul optag. Uden EAN kan en række
+aldrig bære en dom.
+
+To ting følger:
+
+1. Søgningen leder kun i navn, mærke og kategori (`main.py:1071`), så en
+   søgning på »smør« finder IKKE familiens egne smørerstatninger. Svaret
+   ligger i databasen og er usynligt for det spørgsmål, det besvarer.
+2. Trin 1 er derfor ikke en ny funktion, men to små indgreb: tag
+   `erstatning_for` med i søgeteksten, og vis den på rækken.
 
 ## De fire huller
 
