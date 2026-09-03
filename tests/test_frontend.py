@@ -446,3 +446,85 @@ def test_reservelaeseren_siges_hoejt():
     assert "svagere reservelæsning" in html, (
         "familien får ikke at vide, at læsningen er svagere end normalt"
     )
+
+
+# --- appen spørger, den gætter ikke (0.23.1) ------------------------------
+#
+# En frisk telefon uden login blev TAVST sat til alle 17 allergener:
+#
+#     if(!prefs.allergens.length) prefs.allergens = ALLERGENS.map(a => a.slug);
+#
+# Og fordi en samlet dom kræver, at ALLE vurderede allergener er manuelt
+# bekræftet frie, blev et rugbrød, familien selv havde godkendt, ikke
+# bare gråt for dagplejeren — det blev RØDT, fordi motoren finder gluten
+# i rugmelet. Backend-siden af den historie står i
+# tests/test_udlogget_allergensaet.py; her holdes den vagt, der gør, at
+# spørgsmålet overhovedet bliver stillet.
+#
+# Den anden vej er farligere: et tomt sæt må aldrig blive til "tjek
+# ingenting". Serveren afviser det med 400, og frontend skal lade være
+# med at kalde.
+
+def test_frisk_telefon_saettes_ikke_tavst_til_alle_17():
+    html = _forsiden()
+    assert "if(!prefs.allergens.length) prefs.allergens =" not in html, (
+        "opstarten gætter igen på et allergensæt, ingen har valgt"
+    )
+    krop = _funktionskrop(html, "function effektivAllergener(){", "\nconst harValgtAllergener")
+    assert "ALLERGENS.map" not in krop, (
+        "effektivAllergener() falder tilbage til alle 17 igen — så er "
+        "spørgsmålet aldrig noget, brugeren kommer til at se"
+    )
+    assert "return sæt || []" in krop
+
+
+def test_scan_indgangen_spoerger_foer_den_kalder_serveren():
+    """Rækkefølgen ER vagten: prøven skal stå før fetch, ikke efter."""
+    krop = _funktionskrop(_forsiden(), "async function lookup(code){", "function highlight(text")
+    assert "harValgtAllergener()" in krop, "scan-indgangen har ingen vagt"
+    assert krop.index("harValgtAllergener()") < krop.index("fetch(`/api/scan/"), (
+        "vagten står EFTER kaldet — så er den ikke en vagt"
+    )
+
+
+def test_soege_indgangen_har_den_samme_vagt():
+    """
+    Listen er den anden indgang til nøjagtig samme domslogik
+    (`_verdict_rows` på serveren). Rettes kun scan-skærmen, svarer listen
+    videre på et gæt.
+    """
+    krop = _funktionskrop(_forsiden(), "async function soeg(){", "// status-knapper med antal")
+    assert "harValgtAllergener()" in krop, "søgningen har ingen vagt"
+    assert krop.index("harValgtAllergener()") < krop.index("fetch('/api/soeg?"), (
+        "vagten står EFTER kaldet — så er den ikke en vagt"
+    )
+
+
+def test_spoergsmaalet_findes_og_ligner_ikke_en_dom():
+    """
+    Panelet må ikke bære en af dommens fire farver: et ubesvaret
+    spørgsmål, der ser ud som et svar, er værre end ingen advarsel.
+    Farverne sættes på `#slab` via `data-r` — spørgsmålet er en almindelig
+    `.sec`.
+    """
+    html = _forsiden()
+    panel = _funktionskrop(html, '<section class="sec" id="vaelgPanel"', "</section>")
+    assert "Hvad skal appen tjekke for?" in panel
+    assert 'id="vaelgGo"' in panel
+    assert "data-r" not in panel and "slab" not in panel, (
+        "spørgsmålet har fået en domsfarve"
+    )
+
+
+def test_headeren_indroemmer_at_der_ikke_er_valgt_noget():
+    """
+    Før stod der "Tjekker for: alle allergener" på en telefon, hvor
+    ingen havde valgt noget. Det var ikke bare upræcist — det var det
+    svar, der gjorde familiens egen godkendte vare rød.
+    """
+    html = _forsiden()
+    assert "'ikke valgt endnu'" in html
+    krop = _funktionskrop(html, "const paintWho = () => {", "\n};")
+    assert krop.index("'ikke valgt endnu'") < krop.index("'alle allergener'"), (
+        "det tomme sæt læses stadig som 'alle allergener'"
+    )

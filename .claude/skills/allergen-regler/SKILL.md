@@ -5,8 +5,10 @@ description: Hvordan AllergiScans regelmotor faktisk læser en deklaration — m
 
 # Regelmotorens mekanik
 
-Efterprøvet mod koden 21. august 2026 (efter 0.19.0). **Ændrer du mekanikken, ændrer du denne
-fil i samme commit** — ellers gætter næste session på noget, der ikke er sandt.
+Efterprøvet mod koden 21. august 2026 (efter 0.19.0); afsnittet »Sættet, der
+vurderes« er efterprøvet 3. september 2026 (0.23.1). **Ændrer du mekanikken,
+ændrer du denne fil i samme commit** — ellers gætter næste session på noget,
+der ikke er sandt.
 
 ## Invarianten, alt andet hænger på
 
@@ -47,6 +49,33 @@ Rækkefølgen ER reglen. Bytter du om på trinnene, ændrer du domme:
 
 `aggregate()` samler til `unsafe` / `caution` / `safe` / `unverified`.
 `safe` kræver at ALLE valgte allergener står som `FREE` **og** `MANUAL`.
+
+### Sættet, der vurderes, er en del af dommen (0.23.1)
+
+Fordi `aggregate()` kræver ALLE vurderede allergener, er listen af slugs
+lige så domsbærende som teksten. Samme vare, samme database, to sæt:
+
+| `allergens=` | Dom på et rugbrød med manuel FREE på mælk+æg |
+|---|---|
+| `maelkeprotein,aeg` | `safe` |
+| udeladt (= alle 17) | **`unsafe`** — gluten i `Rugmel` |
+
+De to indgange, der tager parameteren, er `GET /api/scan/{ean}` og
+`GET /api/soeg`. Begge:
+
+- **afviser et TOMT eller ugyldigt sæt med 400**, før varen slås op. Et
+  tomt sæt ville betyde »tjek ingenting« — den farlige retning.
+- **udelader man parameteren, vurderes alle 17.** Over-advarsel, altså
+  den ufarlige retning, men det er et gæt: for en anonym kalder er det
+  også bevidst, at profilen IKKE bruges, for svarets længde ville ellers
+  røbe barnets sæt.
+
+Frontend sender altid parameteren og gætter aldrig. Indtil 0.23.1 satte
+opstarten i `index.html` tavst en frisk telefon uden login til alle 17,
+og en dagplejer fik derfor »Ikke sikker« på et brød, familien selv havde
+godkendt. Nu spørger appen (`harValgtAllergener()` + vagt i både
+`lookup()` og `soeg()`); `tests/test_udlogget_allergensaet.py` holder
+begge indgange og begge retninger fast.
 
 ## De fem mekanismer, der ser mærkelige ud
 

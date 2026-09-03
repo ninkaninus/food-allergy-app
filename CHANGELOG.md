@@ -3,6 +3,33 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.23.1 — 3. september 2026
+
+**Appen spørger nu, hvad den skal tjekke for — den gætter ikke**
+
+Åbnede man appen på en telefon uden login — dagplejerens, en ny telefon,
+eller efter at have logget ud — slog appen i al stilhed alle 17
+allergener til. Det lyder forsigtigt, men det var det ikke: et rugbrød,
+I selv havde bekræftet uden mælk og æg, kom op som »Ikke sikker«, fordi
+der er gluten i rugmel. Hun fik altså at vide, at en vare, I havde
+godkendt, ikke måtte spises — og det samme skete i listen under
+»Filtrér«, hvor den slet ikke blev talt med under »Sikre«.
+
+Nu spørger appen i stedet. Er der ikke valgt noget, står der »Hvad skal
+appen tjekke for?« på scan-skærmen, og der kommer intet svar på en vare,
+før valget er truffet. Vælgeren er den samme som altid, under
+Indstillinger. Vælger hun de samme allergener som jer, får hun nøjagtig
+det samme svar som jeres egen telefon — også de grønne, I selv har
+bekræftet mod emballagen.
+
+Er I logget ind, mærker I ingen forskel: jeres fælles sæt kommer fra
+serveren som hidtil, og det er stadig kun jer, der kan ændre det.
+
+Det ene, der ikke kan ske: intet valgt kommer aldrig til at betyde »tjek
+ingenting«. Appen svarer hellere slet ikke end at svare på et gæt — og
+ingen vare bliver grøn af den her ændring. Det kræver stadig, at en af
+jer har læst pakken.
+
 ## 0.23.0 — 23. august 2026
 
 **Jeres billeder bliver brugt til at gøre aflæsningen bedre**
