@@ -281,45 +281,29 @@ class Ingredient(Base):
     seen_count: Mapped[int] = mapped_column(Integer, default=0)
 
 
-class ImportedProduct(Base):
-    """
-    Jeres gamle godkendt-liste, importeret fra regnearket. Rækkerne har
-    INGEN EAN og kan derfor aldrig blive til domme — domme hænger på
-    (produkt, allergen), og det her er kun navne. Listen er opslagsværk
-    og scan-hint, indtil varen scannes og bekræftes rigtigt.
-    """
-
-    __tablename__ = "imported_product"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    household_id: Mapped[int] = mapped_column(ForeignKey("household.id"), index=True)
-    kategori: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    navn: Mapped[str] = mapped_column(String(400))
-    producent: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    link: Mapped[str | None] = mapped_column(Text, nullable=True)
-    erstatning_for: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    # Hele listen var valideret, FØR den kom ind i regnearket — arkets
-    # "Valideret"-kolonne er et dødt felt og ignoreres ved import.
-    # valideret_mod siger, hvad familiens validering betød.
-    valideret: Mapped[bool] = mapped_column(Boolean, default=True)
-    valideret_mod: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    # Stregkoden, når I har knyttet arkets række til en rigtig vare.
-    # DET er dét, der giver rækken værdi: uden EAN kan den aldrig bære en
-    # dom, for domme hænger på (EAN, allergen). Koblingen er jeres eget
-    # arbejde og sættes kun af et menneske — se POST /api/liste/{id}/stregkode.
-    ean: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
-    kilde: Mapped[str] = mapped_column(String(120), default="regneark")
-    imported_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
+# `ImportedProduct` (jeres gamle godkendt-liste fra regnearket) er FJERNET
+# i 0.25.0, ikke migreret — se _drop_imported_product_tabellen() i
+# app/db.py for den destruktive DROP TABLE. Kort version: 0 af 583 rækker
+# havde en EAN, og domme hænger på (EAN, allergen), så ingen af dem kunne
+# nogensinde blive grøn — de stod som "Ikke scannet" for evigt. Rækkerne
+# havde heller ingen plads at høre til, jo mere familien scannede: en
+# scannet vare får kun kategori ved at matche en arkrække (Product har
+# ingen kategorikolonne), samme mekanik som butikskolonnen, der blev
+# fjernet i 0.18.0. Regnearket findes stadig hos familien — det var kun
+# appens egen kopi, der forsvandt. Led du efter klassen, fordi noget
+# stadig importerer den: det skal det ikke længere, og importen er
+# fejlen, ikke denne kommentar.
 
 
 class ProductPhoto(Base):
     """
     Jeres egne billeder af varen: forsiden og deklarationen.
 
-    Fjerde tabel af samme grund som `verdict` og `imported_product`: det
-    er jeres arbejde, ikke Open Food Facts' data (se NOTICE.md). Selve
-    filerne ligger på disken under DATA_DIR/billeder — ikke som blobs i
-    databasen — så de følger med jeres backup af appdata, og databasen
-    forbliver lille nok til at kopiere.
+    Samme grund som `verdict`: det er jeres arbejde, ikke Open Food
+    Facts' data (se NOTICE.md). Selve filerne ligger på disken under
+    DATA_DIR/billeder — ikke som blobs i databasen — så de følger med
+    jeres backup af appdata, og databasen forbliver lille nok til at
+    kopiere.
 
     FLERE billeder pr. (vare, slags) siden 0.21.0 — den gamle
     UniqueConstraint("household_id", "product_ean", "slags") er fjernet

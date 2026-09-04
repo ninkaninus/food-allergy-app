@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime as dt
 import io
 import os
-import re
 import secrets
 from dataclasses import asdict
 from pathlib import Path
@@ -41,7 +40,6 @@ from .version import VERSION
 from .models import (
     Allergen,
     GYLDIGE_ROLLER,
-    ImportedProduct,
     ProductPhoto,
     User,
     Product,
@@ -106,16 +104,6 @@ def _queue(db: Session, hh_id: int, ean: str, reason: str) -> None:
         # toppen hver gang og skubbe det ægte nye ned.
 
 
-def _ord_maengde(*tekster: str | None) -> set[str]:
-    """Betydende ord (4+ tegn, æøå-foldet) til grov navnesammenligning."""
-    ud: set[str] = set()
-    for t in tekster:
-        for w in re.findall(r"[a-zæøåéü]+", (t or "").lower()):
-            if len(w) >= 4:
-                ud.add(fold(w))
-    return ud
-
-
 def _visningsnavn(p: Product) -> str | None:
     """
     Navnet, et menneske skal se — familiens eget (`navn_manuelt`), hvis de
@@ -129,97 +117,6 @@ def _visningsnavn(p: Product) -> str | None:
     `app/ingredients.py:filter_products()`, som brugte `p.name` rå.
     """
     return p.visningsnavn
-
-
-def _gammel_liste_hint(
-    db: Session, hh_id: int, name: str | None, brand: str | None, ean: str | None = None
-) -> list[dict]:
-    """
-    Ligner den scannede vare noget fra den importerede godkendt-liste?
-
-    Filterlags-heuristik: overinklusion er acceptabel, for det her er et
-    HINT ("I har haft den på jeres liste — bekræft mod emballagen"),
-    aldrig en dom. Listen har ingen EAN, så navne er alt, vi har.
-    """
-    # Er rækken allerede knyttet til netop denne vare, er det ikke et gæt
-    # længere — så vis den, og kun den.
-    if ean:
-        bundet = db.scalar(
-            select(ImportedProduct).where(
-                ImportedProduct.household_id == hh_id, ImportedProduct.ean == ean
-            )
-        )
-        if bundet is not None:
-            return [{
-                "id": bundet.id,
-                "navn": bundet.navn,
-                "producent": bundet.producent,
-                "kategori": bundet.kategori,
-                "valideret_mod": bundet.valideret_mod,
-                "ean": bundet.ean,
-            }]
-
-    maal = _ord_maengde(name, brand)
-    if not maal:
-        return []
-    brand_ord = _ord_maengde(brand)
-    kandidater: list[tuple[int, ImportedProduct]] = []
-    for ip in db.scalars(
-        select(ImportedProduct).where(
-            ImportedProduct.household_id == hh_id,
-            # rækker, der er knyttet til en anden vare, er ikke kandidater
-            ImportedProduct.ean.is_(None),
-        )
-    ):
-        faelles = maal & _ord_maengde(ip.navn, ip.producent)
-        staerk = len(faelles) >= 2 or (
-            len(faelles) == 1 and brand_ord and brand_ord & _ord_maengde(ip.producent)
-        )
-        if staerk:
-            kandidater.append((len(faelles), ip))
-    # flest fælles ord først — det konkrete navnematch skal stå før
-    # rækker, der kun deler producent
-    kandidater.sort(key=lambda t: -t[0])
-    return [
-        {
-            "id": ip.id,
-            "navn": ip.navn,
-            "producent": ip.producent,
-            "kategori": ip.kategori,
-            "valideret_mod": ip.valideret_mod,
-            "ean": ip.ean,
-        }
-        for _, ip in kandidater[:3]
-    ]
-
-
-def _match_liste(navn: str | None, maerke: str | None, ordindeks: dict):
-    """
-    Den scannede vares række på det gamle ark. Returnerer (række, samme_vare).
-
-    To forskellige krav, med vilje:
-
-    * **Kategori** arves ved to fælles ord. Det er filterlag —
-      rammer den ved siden af, står varen i en lidt forkert gruppe, og
-      det er til at leve med.
-    * **`samme_vare`** — påstanden om at det ér den samme vare, så de to
-      linjer bliver til én — kræver, at HELE arkets række går op i
-      varens navn. Ellers ville "Testbrød Hvid" spise arkets "Testbrød
-      Grøn", fordi de deler mærke og halvdelen af navnet, og en række
-      ville forsvinde fra jeres liste uden at nogen bad om det.
-    """
-    maal = _ord_maengde(navn, maerke)
-    if not maal:
-        return None, False
-    kandidater = {ip.id: ip for w in maal for ip in ordindeks.get(w, [])}
-    bedst, bedste_score = None, 1
-    for ip in kandidater.values():
-        score = len(maal & _ord_maengde(ip.navn, ip.producent))
-        if score > bedste_score:
-            bedst, bedste_score = ip, score
-    if bedst is None:
-        return None, False
-    return bedst, _ord_maengde(bedst.navn, bedst.producent) <= maal
 
 
 def _soegenoegle(s: str | None) -> str:
@@ -553,18 +450,6 @@ async def scan(
         "found": True,
         "source": source,
         "result": result,
-        # BEVIDST product.name her, IKKE _visningsnavn(product)/navn_manuelt.
-        # Hintet er BEROLIGENDE ("bekræftet uden mælkeprotein — men tjek
-        # stadig emballagen"), og den farlige retning er under-advarsel,
-        # ikke over-advarsel. `_match_liste` kræver kun to fælles ord — et
-        # navn, familien selv har fundet på, kunne tilfældigt dele to ord
-        # med en helt anden vare på det gamle ark og fremkalde et falsk
-        # beroligende hint. OFF's eget navn er ikke noget familien styrer.
-        # (soeg()s brug af `_visningsnavn` til at MATCHE listen er en
-        # anden ting — se kommentaren der — og er urørt.)
-        "gammel_liste": _gammel_liste_hint(
-            db, hh.id, product.name, product.brand, ean
-        ),
         "fotos": _foto_svar(db, hh.id, ean, bruger),
         "product": {
             "name": _visningsnavn(product),
@@ -875,106 +760,39 @@ def ingredient_suggest(q: str, db: Session = Depends(get_session)):
     return ix.suggest(db, q)
 
 
-class KoblingIn(BaseModel):
-    ean: str | None = None      # None = fjern koblingen igen
-
-
-@app.post("/api/liste/{ip_id}/stregkode")
-async def kobl_stregkode(
-    ip_id: int,
-    body: KoblingIn,
-    _: User = Depends(require_curator),
-    db: Session = Depends(get_session),
-):
-    """
-    Knyt en række fra det gamle ark til en rigtig stregkode.
-
-    Det er dét, der giver arkets 583 rækker værdi: uden EAN kan de aldrig
-    bære en dom, for domme hænger på (EAN, allergen). Efter koblingen er
-    varen ÉN linje i listen, med arkets hylde og varens egen dom.
-
-    Koblingen er IKKE en dom og gør ikke noget grønt. Arket siger kun, at
-    I engang har haft varen på listen; farven kommer stadig fra motoren
-    eller fra en bekræftelse mod emballagen. Derfor kræver den login som
-    de øvrige skrivninger, men den rører ikke `verdict`-tabellen.
-    """
-    hh = default_household(db)
-    ip = db.get(ImportedProduct, ip_id)
-    if ip is None or ip.household_id != hh.id:
-        raise HTTPException(404, "ukendt række på listen")
-
-    if body.ean is None:
-        ip.ean = None
-        db.commit()
-        return {"ok": True, "ean": None}
-
-    ean = "".join(ch for ch in body.ean if ch.isdigit())
-    if len(ean) < 8:
-        raise HTTPException(400, "stregkoden ser ikke rigtig ud")
-
-    optaget = db.scalar(
-        select(ImportedProduct).where(
-            ImportedProduct.household_id == hh.id,
-            ImportedProduct.ean == ean,
-            ImportedProduct.id != ip.id,
-        )
-    )
-    if optaget is not None:
-        raise HTTPException(
-            409, f"Stregkoden er allerede knyttet til «{optaget.navn}» på listen."
-        )
-
-    # Kender vi ikke varen, så hent den — ellers står koblingen til en
-    # stregkode, listen ikke kan vise noget om. Kender vi den allerede
-    # (I har lige scannet den), skal koblingen ikke vente på OFF, og den
-    # skal heller ikke fejle, hvis OFF er nede: rækken er jeres eget
-    # arbejde, ikke deres data.
-    if db.get(Product, ean) is None:
-        await _ensure_product(db, ean)
-    ip.ean = ean
-    db.commit()
-    return {"ok": True, "ean": ean, "navn": ip.navn}
-
-
 @app.get("/api/soeg")
 def soeg(
     q: str = "",
     status: str = "alle",
     fri_for: str | None = None,
-    kategori: str | None = None,
     allergens: str | None = None,
     limit: int = 60,
     db: Session = Depends(get_session),
 ):
     """
-    Butiks-agtig søgning i ÉN liste. Varerne fra det gamle regneark og
-    de varer, I har scannet, er samme liste: har I scannet noget, der
-    står på arket, bliver det én linje — den scannede, med dommen — og
-    arket giver den sin kategori.
+    Flad, sorteret liste over de varer, I har scannet.
 
-    Underliggende ligger de i hver sin tabel, og det bliver de ved med:
-    `product` er ODbL-afledt fra Open Food Facts, arket er jeres eget
-    (se NOTICE.md), og domme hænger på (EAN, allergen), som arket ikke
-    har.
+    (0.25.0 fjernede den gamle godkendt-liste fra regnearket, som før
+    blev slået sammen med de scannede varer her — se
+    _drop_imported_product_tabellen() i app/db.py. Det gamle regneark
+    findes stadig hos jer; det er kun appens kopi, der er væk.)
 
     Sikkerheden er den samme som på scan-skærmen: domme kommer fra
     `_verdict_rows`, så en manuel godkendelse kun tæller med uændret
     opskrift. Søgningen kan aldrig GØRE noget grønt — kun vise frem.
 
     Filtre (alle valgfrie, kombineres):
-      q         fritekst i navn, mærke og kategori (æ/ø/å-tolerant)
-      status    alle | safe | unsafe | uafklaret | uscannet
+      q         fritekst i navn og mærke (æ/ø/å-tolerant)
+      status    alle | safe | unsafe | uafklaret
       fri_for   kommaseparerede allergen-slugs: skjuler varer, hvor
                 allergenet ER fundet. Bemærk: det er IKKE det samme som
                 bevist fri — ukendt er stadig ukendt, og hver vare
                 beholder sin egen farve.
-      kategori  jeres egne hyldenavne fra regnearket — også for de
-                scannede varer, der matcher en række på arket
 
-    Svaret rummer facetter med antal, så knapperne kan vise tal som i en
-    webshop — hver facet talt med de ØVRIGE filtre aktive.
+    Varerne sorteres med det gode først og det forbudte sidst — man
+    søger for at finde noget, man kan spise.
     """
-    gyldige = {"alle", "safe", "unsafe", "caution", "unverified", "uafklaret", "uscannet"}
+    gyldige = {"alle", "safe", "unsafe", "caution", "unverified", "uafklaret"}
     if status not in gyldige:
         raise HTTPException(400, f"status skal være en af: {', '.join(sorted(gyldige))}")
     if allergens is not None:
@@ -998,69 +816,19 @@ def soeg(
     ):
         domme.setdefault(v.product_ean, {})[slug] = v
 
-    liste = list(db.scalars(
-        select(ImportedProduct).where(ImportedProduct.household_id == hh.id)
-    ))
-    ordindeks: dict[str, list[ImportedProduct]] = {}
-    pr_ean: dict[str, ImportedProduct] = {}
-    for ip in liste:
-        if ip.ean:
-            pr_ean[ip.ean] = ip     # knyttet af et menneske — det slår alle gæt
-        for w in _ord_maengde(ip.navn, ip.producent):
-            ordindeks.setdefault(w, []).append(ip)
-
     kandidater: list[dict] = []
-    brugt: set[int] = set()          # liste-rækker, der er slået sammen med en scannet vare
     for p in db.scalars(select(Product)):
         rows, verdicts, stale = _verdict_rows(db, hh.id, p, slugs, domme.get(p.ean, {}))
-        ip = pr_ean.get(p.ean)
-        samme_vare = ip is not None
-        visningsnavn = _visningsnavn(p)
-        if ip is None:
-            # Ingen kobling endnu — så må navnene gøre arbejdet, med de to
-            # tærskler i `_match_liste`. Familiens eget navn (hvis sat)
-            # bruges her på lige fod med OFF's — en vare, OFF aldrig fandt,
-            # men familien selv har navngivet, skal kunne matches ligesom
-            # enhver anden.
-            ip, samme_vare = _match_liste(visningsnavn, p.brand, ordindeks)
-        if samme_vare:
-            brugt.add(ip.id)      # kun ved sikkert match — ellers taber vi en række
         kandidater.append({
             "ean": p.ean,
-            "navn": visningsnavn or "Uden navn",
+            "navn": _visningsnavn(p) or "Uden navn",
             "maerke": p.brand,
             "billede": p.image_url,
-            # Scannede varer har ingen hyldenavne af sig selv — de arver
-            # jeres egne fra arket, så de står i den rigtige gruppe.
-            "kategori": ip.kategori if ip else None,
-            "paa_listen": samme_vare,
-            "scannet": True,
             "status": aggregate(verdicts),
             "stale": bool(stale),
             "problemer": [r["name"] for r in rows if r["state"] == "contains"],
             "spor": [r["name"] for r in rows if r["state"] == "trace_risk"],
             "_fundet": {r["slug"] for r in rows if r["state"] in ("contains", "trace_risk")},
-        })
-    for ip in liste:
-        if ip.id in brugt:
-            continue             # står allerede i listen som scannet vare
-        kandidater.append({
-            "ean": ip.ean,       # kendt stregkode, men varen er ikke hentet endnu
-            "liste_id": ip.id,
-            "navn": ip.navn,
-            "maerke": ip.producent,
-            "billede": None,
-            "kategori": ip.kategori,
-            "paa_listen": True,
-            "scannet": False,
-            "status": "uscannet",
-            "stale": False,
-            "problemer": [],
-            "spor": [],
-            "valideret_mod": ip.valideret_mod,
-            # Arket kender ikke ingredienserne, så intet er "fundet".
-            # Rækken ryger derfor aldrig ud på fri_for — ukendt er ukendt.
-            "_fundet": set(),
         })
 
     ql = _soegenoegle((q or "").strip())
@@ -1068,7 +836,7 @@ def soeg(
     def match_q(k: dict) -> bool:
         if not ql:
             return True
-        blob = _soegenoegle(" ".join(filter(None, [k["navn"], k["maerke"], k["kategori"]])))
+        blob = _soegenoegle(" ".join(filter(None, [k["navn"], k["maerke"]])))
         return ql in blob
 
     def match_status(k: dict) -> bool:
@@ -1081,33 +849,10 @@ def soeg(
     def match_fri(k: dict) -> bool:
         return not (k["_fundet"] & set(fri))
 
-    def match_kategori(k: dict) -> bool:
-        if not kategori:
-            return True
-        if k["kategori"]:
-            return k["kategori"].lower() == kategori.lower()
-        # Scannede varer har ingen hyldenavne — så matcher vi på ordet i
-        # navnet. Filterlags-logik: overinklusion er acceptabel her.
-        return _soegenoegle(kategori) in _soegenoegle(" ".join(filter(None, [k["navn"], k["maerke"]])))
-
     def filtrer(*undtag: str) -> list[dict]:
-        proever = {
-            "q": match_q, "status": match_status, "fri_for": match_fri,
-            "kategori": match_kategori,
-        }
+        proever = {"q": match_q, "status": match_status, "fri_for": match_fri}
         aktive = [f for navn, f in proever.items() if navn not in undtag]
         return [k for k in kandidater if all(f(k) for f in aktive)]
-
-    def facet(felt: str, undtag: str) -> list[dict]:
-        antal: dict[str, int] = {}
-        for k in filtrer(undtag):
-            v = k.get(felt)
-            if v:
-                antal[v] = antal.get(v, 0) + 1
-        return [
-            {"vaerdi": v, "antal": n}
-            for v, n in sorted(antal.items(), key=lambda t: (-t[1], t[0]))
-        ]
 
     uden_status = filtrer("status")
     status_antal = {
@@ -1115,45 +860,21 @@ def soeg(
         "safe": sum(k["status"] == "safe" for k in uden_status),
         "unsafe": sum(k["status"] == "unsafe" for k in uden_status),
         "uafklaret": sum(k["status"] in ("caution", "unverified") for k in uden_status),
-        "uscannet": sum(k["status"] == "uscannet" for k in uden_status),
     }
-
-    facetter = {
-        "status": status_antal,
-        "kategori": facet("kategori", "kategori"),
-    }
+    facetter = {"status": status_antal}
 
     traef = filtrer()
     # Det gode først, det forbudte sidst — man søger for at finde noget,
-    # man kan købe.
-    rang = {"safe": 0, "unverified": 1, "caution": 1, "uscannet": 2, "unsafe": 3}
+    # man kan spise.
+    rang = {"safe": 0, "unverified": 1, "caution": 1, "unsafe": 2}
     traef.sort(key=lambda k: (rang.get(k["status"], 9), (k["navn"] or "").lower()))
     for k in kandidater:
         k.pop("_fundet", None)
-
-    # Grupperne er hylderne i butikken. Har man allerede valgt én
-    # kategori, er der kun én gruppe, og så vises den fuldt ud; ellers
-    # får hver hylde et kig, og "vis alle" åbner den.
-    pr_gruppe = limit if kategori else 6
-    grupper: dict[str, dict] = {}
-    for k in traef:
-        navn = k["kategori"] or "Uden kategori"
-        g = grupper.setdefault(navn, {"navn": navn, "antal": 0, "varer": []})
-        g["antal"] += 1
-        if len(g["varer"]) < pr_gruppe:
-            g["varer"].append(k)
-
-    ordnet = sorted(
-        grupper.values(),
-        # Uden kategori sidst — de er ikke en hylde, de mangler bare en.
-        key=lambda g: (g["navn"] == "Uden kategori", -g["antal"], g["navn"]),
-    )
 
     return {
         "antal": len(traef),
         "vist": min(len(traef), limit),
         "varer": traef[:limit],
-        "grupper": ordnet,
         "facetter": facetter,
     }
 

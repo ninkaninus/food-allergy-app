@@ -4,7 +4,11 @@ Additiv mini-migrering.
 Baggrund: `create_all` opretter kun tabeller, der mangler helt. En ny
 kolonne på en tabel, der allerede findes, laver den aldrig — og så giver
 et ellers uskyldigt deploy "no such column" på jeres database. Det skete
-mellem 0.9.0 og 0.10.0 med `imported_product.valideret_mod`.
+mellem 0.9.0 og 0.10.0 med `imported_product.valideret_mod` — den tabel
+er selv fjernet igen i 0.25.0 (se _drop_imported_product_tabellen() i
+app/db.py), så testen her demonstrerer nu samme mekanik på `product`, som
+faktisk fik `navn_manuelt` tilføjet på præcis denne måde (se kommentaren
+på Product.navn_manuelt i app/models.py).
 """
 import os
 import pathlib
@@ -43,24 +47,28 @@ def test_manglende_kolonne_tilfoejes_uden_at_roere_data(tmp_path, monkeypatch):
     url = f"sqlite:///{tmp_path}/gammel.db"
     eng = create_engine(url)
 
-    # "Gammel" udgave af imported_product: uden valideret_mod
+    # "Gammel" udgave af product: uden navn_manuelt (tilføjet mellem
+    # 0.9.0 og 0.10.0 — se app/models.py).
     gammel = MetaData()
     Table(
-        "imported_product", gammel,
-        Column("id", String, primary_key=True),
-        Column("navn", String),
+        "product", gammel,
+        Column("ean", String, primary_key=True),
+        Column("name", String),
     ).create(eng)
     with eng.begin() as con:
-        con.execute(text("INSERT INTO imported_product (id, navn) VALUES ('1', 'Listebrød')"))
+        con.execute(text("INSERT INTO product (ean, name) VALUES ('5701234500001', 'Listebrød')"))
 
     monkeypatch.setattr(dbmod, "engine", eng)
     dbmod.tilfoej_manglende_kolonner()
 
-    kolonner = {c["name"] for c in inspect(eng).get_columns("imported_product")}
-    assert "valideret_mod" in kolonner
-    assert "kategori" in kolonner
+    kolonner = {c["name"] for c in inspect(eng).get_columns("product")}
+    assert "navn_manuelt" in kolonner
+    # `source` har en skalar default ("off") på modellen — den skal
+    # være BACKFILLET på den eksisterende række, ikke kun NULL.
+    assert "source" in kolonner
     with eng.connect() as con:
-        assert con.execute(text("SELECT navn FROM imported_product")).scalar() == "Listebrød"
+        assert con.execute(text("SELECT name FROM product")).scalar() == "Listebrød"
+        assert con.execute(text("SELECT source FROM product")).scalar() == "off"
 
 
 def test_koersel_to_gange_er_harmloes(tmp_path, monkeypatch):

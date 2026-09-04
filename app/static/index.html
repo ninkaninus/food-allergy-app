@@ -356,17 +356,13 @@ footer a{color:var(--muted)}
   <section id="view-filter" hidden>
     <div class="sec">
       <h3>Søg i jeres varer</h3>
-      <input id="sQ" placeholder="brød, yoghurt, pålæg …" aria-label="Søg efter vare eller kategori">
+      <input id="sQ" placeholder="brød, yoghurt, pålæg …" aria-label="Søg efter vare eller mærke">
 
       <ul class="chips" id="sStatus" style="margin:12px 0 0" aria-label="Vis kun"></ul>
 
       <div class="facet" id="sFriBox">
         <div class="facet-h">Fri for</div>
         <ul class="chips" id="sFri"></ul>
-      </div>
-      <div class="facet" id="sKatBox" hidden>
-        <div class="facet-h">Kategori</div>
-        <ul class="chips" id="sKat"></ul>
       </div>
 
       <p class="hint" id="sHint"></p>
@@ -791,23 +787,6 @@ document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => {
 });
 
 /* ---------- opslag ---------- */
-// Sat fra listen: "knyt stregkode" på en række fra arket, som mangler en.
-let ventendeKobling = null;
-
-function koblingLinje(gl, ean){
-  const knyttet = gl.ean && gl.ean === ean;
-  // KAN_BEKRAEFTE, ikke USER: POST /api/liste/{id}/stregkode kræver
-  // require_curator, og en bidragyder må ikke se en knap, der alligevel
-  // ville give 403.
-  const knap = !KAN_BEKRAEFTE ? ''
-    : knyttet
-      ? `<button class="link" data-kobl="${gl.id}" data-fjern="1">fjern koblingen</button>`
-      : `<button class="link" data-kobl="${gl.id}">det er denne vare</button>`;
-  return `<p class="meta">${knyttet ? 'Knyttet til' : 'Ligner'} <b>${esc(gl.navn)}</b>`
-    + `${gl.producent ? ' (' + esc(gl.producent) + ')' : ''} fra jeres liste`
-    + `${gl.valideret_mod ? ' — bekræftet uden ' + esc(gl.valideret_mod) + ',' : ' —'}`
-    + ` men tjek stadig emballagen. ${knap}</p>`;
-}
 
 // Sætter dommen til én tilstand og rydder alt, der hørte til den
 // FORRIGE vare. Uden det bliver et grønt "Sikker" stående, mens den
@@ -937,34 +916,10 @@ function render(d){
   $('#explain').textContent = key === 'safe' ? safeForklaring(d) : (d.message || ex);
 
   const p = d.product || {};
-  // Hint fra den importerede godkendt-liste: et navnematch, aldrig en dom.
-  const gl = (d.gammel_liste || [])[0];
   $('#prod').innerHTML = (p.image_url ? `<img src="${esc(p.image_url)}" alt="" loading="lazy">` : '')
     + `<div><h2>${esc(p.name || 'Ukendt vare')}</h2>
        <p class="meta">${esc(p.brand || '—')}${p.quantity ? ' · '+esc(p.quantity) : ''}</p>
-       <p class="meta ean">${esc(d.ean)}</p>
-       ${gl ? koblingLinje(gl, d.ean) : ''}</div>`;
-
-  if(ventendeKobling && d.found && !(gl && gl.ean === d.ean)){
-    $('#prod').insertAdjacentHTML('beforeend',
-      `<p class="meta"><button class="link" data-kobl="${ventendeKobling.id}">`
-      + `knyt denne stregkode til «${esc(ventendeKobling.navn)}» fra listen</button></p>`);
-  }
-
-  $('#prod').querySelectorAll('button[data-kobl]').forEach(b => b.onclick = async () => {
-    b.disabled = true;
-    const r = await fetch(`/api/liste/${b.dataset.kobl}/stregkode`, {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ean: b.dataset.fjern ? null : d.ean}),
-    });
-    if(!r.ok){
-      const e = await r.json().catch(() => ({}));
-      $('#scanHint').textContent = e.detail || 'Koblingen mislykkedes.';
-      b.disabled = false; return;
-    }
-    ventendeKobling = null;
-    lookup(d.ean);            // hent igen, så linjen viser den nye tilstand
-  });
+       <p class="meta ean">${esc(d.ean)}</p></div>`;
 
   visFotos(d);
   // Kun for indloggede, og kun når der overhovedet ER billeder at
@@ -1773,7 +1728,7 @@ $('#saveConfirm').onclick = async () => {
 };
 
 /* ---------- søgning (butiks-agtig) ---------- */
-const soegState = {q:'', status:'alle', fri:new Set(), kategori:null};
+const soegState = {q:'', status:'alle', fri:new Set()};
 let soegTimer;
 // Svarene kan komme i en anden rækkefølge end kaldene — en bred søgning er
 // tungere end en smal. Uden det her nummer overskriver det gamle, langsomme
@@ -1782,7 +1737,7 @@ let soegNr = 0;
 
 const STATUS_KNAPPER = [
   ['alle', 'Alle'], ['safe', 'Sikre'], ['unsafe', 'Ikke tilladt'],
-  ['uafklaret', 'Skal tjekkes'], ['uscannet', 'Ikke scannet'],
+  ['uafklaret', 'Skal tjekkes'],
 ];
 
 function chip(tekst, valgt, antal, deaktiveret){
@@ -1800,7 +1755,6 @@ async function soeg(){
     // …og selve boksen, ikke kun chipsene: ellers står overskriften
     // "FRI FOR" tilbage med tomrum under sig.
     $('#sFriBox').hidden = true;
-    $('#sKatBox').hidden = true;
     $('#sHint').textContent = '';
     // Ét spørgsmål, ét sted formuleret — se vaelgBesked(). Listen sagde
     // før "Vælg allergener" til alle, også til en bidragyder, der ikke
@@ -1820,7 +1774,6 @@ async function soeg(){
     allergens: effektivAllergener().join(','),
   });
   if(soegState.fri.size) p.set('fri_for', [...soegState.fri].join(','));
-  if(soegState.kategori) p.set('kategori', soegState.kategori);
 
   const mit = ++soegNr;
   let d;
@@ -1849,8 +1802,6 @@ async function soeg(){
     soeg();
   });
 
-  facetChips('#sKat', '#sKatBox', d.facetter.kategori, 'kategori');
-
   $('#sHint').textContent = soegState.fri.size
     ? '»Fri for« skjuler varer, hvor allergenet er FUNDET. Det er ikke bevis for at resten er fri — farven på hver vare gælder.'
     : 'Sikre varer er dem, et menneske har bekræftet mod emballagen. Læs altid etiketten.';
@@ -1865,54 +1816,20 @@ async function soeg(){
   const forklaring = v => v.status === 'safe' ? 'bekræftet mod emballagen'
     : v.status === 'unsafe' ? (v.problemer.join(', ') || 'allergen fundet')
     : v.status === 'caution' ? 'spor/usikkert: ' + (v.spor.join(', ') || '')
-    : v.status === 'uscannet' ? (v.valideret_mod ? 'fra arket — bekræftet uden ' + v.valideret_mod : 'fra arket, ikke scannet endnu')
     : 'ikke bekræftet';
 
   const vare = v => `<li>
       <span><span class="dot ${dot(v.status)}" style="display:inline-block;vertical-align:-2px;margin-right:8px"></span><b>${esc(v.navn)}</b>
-        <span class="sub"><br>${esc(v.maerke || '—')} · ${esc(forklaring(v))}${v.stale ? ' · <b>opskrift ændret</b>' : ''}</span>
-        <span class="badges">${[
-          v.scannet && v.paa_listen ? 'også på arket' : null,
-        ].filter(Boolean).map(t => `<span class="badge">${esc(t)}</span>`).join('')}</span></span>
-      ${v.ean ? `<button class="link" data-ean="${esc(v.ean)}">åbn</button>`
-        // KAN_BEKRAEFTE, ikke USER — se koblingLinje() for hvorfor.
-        : (KAN_BEKRAEFTE && v.liste_id ? `<button class="link" data-kobl-id="${v.liste_id}" data-navn="${esc(v.navn)}">knyt stregkode</button>` : '')}</li>`;
+        <span class="sub"><br>${esc(v.maerke || '—')} · ${esc(forklaring(v))}${v.stale ? ' · <b>opskrift ændret</b>' : ''}</span></span>
+      <button class="link" data-ean="${esc(v.ean)}">åbn</button></li>`;
 
-  $('#sHits').innerHTML = d.grupper.length
-    ? d.grupper.map(g => `<li class="gruppe">
-        <span class="gruppe-h">${esc(g.navn)}</span>
-        <span class="sub">${g.antal}</span></li>`
-        + g.varer.map(vare).join('')
-        + (g.antal > g.varer.length
-            ? `<li class="mere"><button class="link" data-kat="${esc(g.navn)}">vis alle ${g.antal} i ${esc(g.navn)}</button></li>`
-            : '')).join('')
-    : `<li class="none">Ingen træf. ${soegState.q || soegState.fri.size || soegState.kategori ? 'Prøv at fjerne et filter.' : 'Listen fyldes, når I scanner varer — eller importerer arket.'}</li>`;
+  $('#sHits').innerHTML = d.varer.length
+    ? d.varer.map(vare).join('')
+    : `<li class="none">Ingen træf. ${soegState.q || soegState.fri.size ? 'Prøv at fjerne et filter.' : 'Listen fyldes, når I scanner varer.'}</li>`;
 
-  $('#sHits').querySelectorAll('button[data-kobl-id]').forEach(b => b.onclick = () => {
-    ventendeKobling = {id: b.dataset.koblId, navn: b.dataset.navn};
-    document.querySelector('nav.tabs button[data-view="scan"]').click();
-    $('#scanHint').textContent = `Scan «${ventendeKobling.navn}» — så knytter jeg stregkoden til den række.`;
-    $('#ean').focus();
-  });
-
-  $('#sHits').querySelectorAll('button[data-kat]').forEach(b => b.onclick = () => {
-    soegState.kategori = b.dataset.kat === 'Uden kategori' ? null : b.dataset.kat;
-    soeg(); window.scrollTo(0, 0);
-  });
   $('#sHits').querySelectorAll('button[data-ean]').forEach(b => b.onclick = () => {
     document.querySelector('nav.tabs button[data-view="scan"]').click();
     lookup(b.dataset.ean);
-  });
-}
-
-function facetChips(ul, box, facet, felt){
-  $(box).hidden = facet.length < 2;      // én værdi er ikke et valg
-  $(ul).innerHTML = facet.slice(0, 12)
-    .map(x => chip(x.vaerdi, soegState[felt] === x.vaerdi, x.antal)).join('');
-  [...$(ul).querySelectorAll('.chip')].forEach((b, i) => b.onclick = () => {
-    const v = facet[i].vaerdi;
-    soegState[felt] = soegState[felt] === v ? null : v;
-    soeg();
   });
 }
 
@@ -2037,7 +1954,7 @@ async function refreshAuth(){
   USER = d?.authenticated ? d : null;
   // En inviteret bidragyder er logget ind (USER er sat), men må ikke
   // bekræfte. KAN_BEKRAEFTE er det ene flag, alt andet i scriptet skal
-  // spørge — se koblingLinje(), openConfirm(), soeg() og opstarten.
+  // spørge — se openConfirm(), soeg() og opstarten.
   const erBidragyder = USER?.role === 'contributor';
   KAN_BEKRAEFTE = !!USER && !erBidragyder;
   $('#acts').hidden = !USER;

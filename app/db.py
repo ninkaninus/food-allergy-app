@@ -355,6 +355,31 @@ def _drop_scan_tabellen() -> None:
         con.execute(text("DROP TABLE IF EXISTS scan"))
 
 
+def _drop_imported_product_tabellen() -> None:
+    """
+    Bevidst, destruktiv engangshandling — ikke en fejl, hvis du støder på
+    den her. `imported_product` var den gamle godkendt-liste fra
+    familiens regneark, fjernet i 0.25.0.
+
+    Den kunne aldrig blive andet end et navnehint: 0 af 583 rækker havde
+    en EAN, og domme hænger på (EAN, allergen), så ingen af dem kunne
+    nogensinde blive grøn — de stod som "Ikke scannet" for evigt.
+    Kategori-dimensionen holdt heller ikke: `product` har ingen
+    kategorikolonne, så en scannet vare fik kun en hylde ved at matche en
+    arkrække, og den gruppering blev tyndere, jo mere familien scannede —
+    samme mekanik som butikskolonnen, der blev fjernet i 0.18.0. Familiens
+    eget regneark er urørt af dette; det er kun appens kopi, der forsvinder.
+
+    `ImportedProduct` findes ikke i `Base.metadata` længere (se
+    app/models.py), så `create_all()` opretter tabellen ikke og rører den
+    heller ikke — den skal droppes eksplicit, ellers bliver rækkerne
+    liggende for evigt. `DROP TABLE IF EXISTS` er idempotent: efter
+    første oprydning er den en billig no-op ved hver opstart.
+    """
+    with engine.begin() as con:
+        con.execute(text("DROP TABLE IF EXISTS imported_product"))
+
+
 def init_db() -> None:
     _vagt_mod_afbrudt_fotoombygning()
     Base.metadata.create_all(engine)
@@ -362,6 +387,7 @@ def init_db() -> None:
     _fjern_foto_unik_constraint()
     _foto_bruger_fk_faar_ondelete()
     _drop_scan_tabellen()
+    _drop_imported_product_tabellen()
     with SessionLocal() as db:
         # Allergener synkroniseres fra YAML ved hver opstart.
         for slug, rule in RULES.allergens.items():

@@ -10,19 +10,14 @@ from __future__ import annotations
 
 import asyncio
 import getpass
-import os
-import re
 import sys
-import tempfile
-
-import httpx
 
 from sqlalchemy import create_engine, func, select, text
 
 from . import ingredients as ix
 from .auth import hash_password, validate_new_password
 from .db import DATABASE_URL, SessionLocal, default_household, init_db
-from .models import Base, GYLDIGE_ROLLER, ImportedProduct, Product, User
+from .models import Base, GYLDIGE_ROLLER, Product, User
 
 
 def adduser(email: str, name: str, role: str = "admin") -> None:
@@ -70,163 +65,6 @@ def reindex() -> None:
                                        p.ingredients_text))
         db.commit()
     print(f"Genindekserede {n} varer.")
-
-
-def _eksport_url(kilde: str) -> str:
-    """Et Google Sheets-link oversættes til dets xlsx-eksport; alle andre
-    URL'er bruges som de er."""
-    m = re.match(r"https?://docs\.google\.com/spreadsheets/d/([\w-]+)", kilde)
-    if m:
-        return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=xlsx"
-    return kilde
-
-
-def _hent_liste(url: str) -> str:
-    """Henter regnearket til en midlertidig fil og returnerer stien.
-    Kræver at arket er delt med 'alle med linket kan se'."""
-    r = httpx.get(_eksport_url(url), follow_redirects=True, timeout=120)
-    r.raise_for_status()
-    if not r.content.startswith(b"PK"):  # xlsx er et zip-arkiv
-        sys.exit(
-            "Det hentede er ikke en xlsx-fil — er arket delt med "
-            "'alle med linket kan se'? (Google viser ellers en loginside.)"
-        )
-    f = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
-    f.write(r.content)
-    f.close()
-    return f.name
-
-
-VALIDERET_MOD = "æg, mælk, tomat og banan"
-
-
-def import_liste(kilde: str | None = None, valideret_mod: str | None = None) -> None:
-    """
-    Importerer jeres gamle godkendt-liste fra regnearket (xlsx).
-
-    Kilden kan være en lokal fil ELLER en URL — et Google Sheets-link
-    hentes selv (kræver 'alle med linket kan se'). Uden argument bruges
-    LISTE_URL fra miljøet (.env), så genimport er én kommando.
-
-    ALLE varer på listen var valideret, før de kom ind i regnearket —
-    uden æg, mælk, tomat og banan. Arkets "Valideret"-kolonne er et dødt
-    felt og ignoreres. Betydningen kan overstyres med andet argument.
-
-    Arket har ingen EAN-koder, så rækkerne bliver IKKE til domme — de
-    lander i en separat opslagsliste, som appen søger i og viser som
-    hint ved scanning. Hver vare bliver først grøn, når den scannes og
-    bekræftes mod den fysiske emballage, som alle andre.
-
-    Genimport udskifter hele listen — tabellen ejes af importen og
-    genskabes hver gang, så også skemaændringer heler sig selv.
-    """
-    from openpyxl import load_workbook
-
-    kilde = kilde or os.getenv("LISTE_URL")
-    if not kilde:
-        sys.exit(
-            "Angiv en fil eller URL — eller sæt LISTE_URL i .env til "
-            "regnearkets Google Sheets-link, så husker kommandoen den selv."
-        )
-    valideret_mod = valideret_mod or VALIDERET_MOD
-    fil = _hent_liste(kilde) if "://" in kilde else kilde
-
-    init_db()
-    wb = load_workbook(fil, read_only=True, data_only=True)
-    rows: list[dict] = []
-    for ws in wb:
-        if ws.title.strip().lower() == "masterdata":
-            continue
-        it = ws.iter_rows(values_only=True)
-        header = next(it, None)
-        if not header:
-            continue
-        kol = {str(h).strip().lower(): i for i, h in enumerate(header) if h}
-        if "beskrivelse" not in kol:
-            continue
-
-        def felt(row, navn):
-            i = kol.get(navn)
-            if i is None or i >= len(row) or row[i] is None:
-                return None
-            s = str(row[i]).strip()
-            return s or None
-
-        for row in it:
-            navn = felt(row, "beskrivelse")
-            if not navn:
-                continue
-            rows.append(dict(
-                kategori=ws.title.strip(),
-                navn=navn,
-                producent=felt(row, "producent"),
-                link=felt(row, "link"),
-                erstatning_for=felt(row, "bruges  fx som erstatning for")
-                               or felt(row, "bruges fx som erstatning for"),
-                valideret=True,
-                valideret_mod=valideret_mod,
-            ))
-
-    # Tabellen ejes af importen og indeholder kun importerede rækker —
-    # genskab den, så nye kolonner ikke kræver håndholdt migrering.
-    #
-    # MEN: `ean` ejes IKKE af importen. Den sættes kun af et menneske
-    # (POST /api/liste/{id}/stregkode) og er dét, der giver en række
-    # værdi — uden EAN kan den aldrig bære en dom. Den skal derfor bæres
-    # over, ellers sletter en genimport familiens eget arbejde lydløst,
-    # og ROADMAP'en opfordrer direkte til at genimportere.
-    from .db import engine
-
-    def noegle(navn, producent, kategori):
-        return (
-            (navn or "").strip().lower(),
-            (producent or "").strip().lower(),
-            (kategori or "").strip().lower(),
-        )
-
-    with SessionLocal() as db:
-        koblinger: dict[tuple, str] = {}
-        for r in db.scalars(select(ImportedProduct).where(ImportedProduct.ean.isnot(None))):
-            k = noegle(r.navn, r.producent, r.kategori)
-            if k in koblinger and koblinger[k] != r.ean:
-                # AFBRYD FØR droppet. Nøglen (navn, producent, kategori) er
-                # ikke unik, og to rækker med samme nøgle ville begge få den
-                # sidste EAN — en stille sammenblanding af to varer. Tabellen
-                # slettes af importen, så det skal fanges nu, ikke bagefter.
-                raise SystemExit(
-                    f"AFBRUDT: to rækker deler nøglen «{r.navn}» "
-                    f"({r.producent or 'uden producent'}, {r.kategori or 'uden kategori'}) "
-                    f"med hver sin stregkode: {koblinger[k]} og {r.ean}.\n"
-                    "Ret det ene navn i arket, eller fjern den ene kobling, "
-                    "og kør importen igen. Intet er ændret."
-                )
-            koblinger[k] = r.ean
-
-    tabel = ImportedProduct.__table__
-    tabel.drop(engine, checkfirst=True)
-    tabel.create(engine)
-
-    baaret, tabt = 0, dict(koblinger)
-    brugt: set[tuple] = set()
-    with SessionLocal() as db:
-        hh = default_household(db)
-        for r in rows:
-            k = noegle(r.get("navn"), r.get("producent"), r.get("kategori"))
-            # Kun ÉN række må arve koblingen. Deler to ark-rækker nøgle,
-            # ville de ellers begge få stregkoden — og CLAUDE.md siger, at
-            # `ean` kun sættes af et menneske.
-            ean = koblinger.get(k) if k not in brugt else None
-            if ean:
-                brugt.add(k)
-                baaret += 1
-                tabt.pop(k, None)
-            db.add(ImportedProduct(household_id=hh.id, ean=ean, **r))
-        db.commit()
-    print(f"Importerede {len(rows)} varer — alle bekræftet uden {valideret_mod}.")
-    if koblinger:
-        print(f"Stregkoder båret over: {baaret} af {len(koblinger)}.")
-        for (navn, _, _), ean in tabt.items():
-            print(f"  MISTET: {ean} hørte til «{navn}», som ikke findes i det nye ark.")
 
 
 def migrate(kilde: str, maal: str | None = None) -> None:
@@ -315,10 +153,8 @@ if __name__ == "__main__":
         reindex()
     elif cmd == "migrate":
         migrate(*sys.argv[2:])
-    elif cmd in ("import", "import-liste"):
-        import_liste(*sys.argv[2:])
     else:
         sys.exit(
             "Brug: python -m app.cli [adduser EMAIL NAVN [ROLLE] | reindex "
-            "| migrate KILDE [MÅL] | import [FIL.xlsx eller URL]]"
+            "| migrate KILDE [MÅL]]"
         )

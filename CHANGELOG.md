@@ -3,6 +3,32 @@
 Skrevet til dem, der bruger appen — ikke til dem, der læser commits.
 Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
+## 0.25.0 — 4. september 2026
+
+**Den gamle godkendt-liste fra jeres regneark er væk fra appen**
+
+Søgningen viste før to lister som én: jeres 583 varer fra regnearket,
+ved siden af de varer, I selv har scannet, samlet i hylder som Brød og
+Pålæg. Regnearkets varer har ingen stregkode, og en dom hænger altid på
+(stregkode, allergen) — så ingen af de 583 rækker kunne nogensinde blive
+grønne. De stod for evigt som »Ikke scannet«, og noten »bekræftet uden
+mælk, æg, tomat og banan« på dem var arkets egen, gamle påstand — ikke
+noget, appen selv havde tjekket.
+
+Hylderne forsvinder med det samme: de kom fra regnearket, og en scannet
+vare fik kun sin egen hylde ved at ligne en arkrække, så grupperingen
+blev tommere og tommere, jo mere I selv scannede — samme grund som
+butiksfilteret, der forsvandt i 0.18.0. Knappen, der kunne knytte en
+stregkode til en arkrække, er væk af samme årsag.
+
+Søgningen er nu kun de varer, I selv har scannet — en enkelt, flad
+liste, sorteret med det sikre først og det forbudte sidst. Fritekst,
+statusfiltrene og »Fri for«-knapperne virker som før.
+
+**Jeres regneark er urørt.** Det er kun appens egen kopi af det, der er
+væk — arket selv ligger stadig, hvor det altid har ligget, og I kan slå
+op i det direkte, ligesom før appen fandtes.
+
 ## 0.24.0 — 3. september 2026
 
 **Appen spørger nu, hvad den skal tjekke for — og I skal svare én gang
