@@ -164,10 +164,12 @@ Det er den eneste automatiske beskyttelse mod stille opskriftsændringer.
 separate tabeller, så share-alike ikke smitter af på verifikationsarbejdet.
 Bland dem ikke sammen. Se `NOTICE.md`.
 
-**`imported_product` er familiens gamle regneark** — deres egne hyldenavne,
-og 583 varer uden stregkoder. Den er en tredje tabel af samme grund:
-den er hverken OFF's data eller en dom. I appen er den ÉN liste sammen med de
-scannede varer (`/api/soeg` slår dem sammen i visningen, ikke i data).
+**`imported_product` er FJERNET (0.25.0)** — hele mekanismen, ikke kun
+rækkerne. Den var familiens gamle regneark: 583 varer med egne hyldenavne og
+**nul stregkoder**. Uden EAN kunne ingen af dem nogensinde bære en dom, så de
+stod som »Ikke scannet« for evigt, og hylderne fandtes kun, fordi arket havde
+dem. Familiens eget regneark er urørt — det var kun appens kopi.
+Se `docs/plan-hvad-kan-jeg-koebe.md` for hele begrundelsen og målingerne.
 
 **`product_photo` er jeres billeder** af forside og deklaration. Selve
 filerne ligger på disken under `DATA_DIR/billeder`, ikke som blobs i
@@ -183,16 +185,15 @@ billede får en miniature (480 px) ved siden af — uden den ville listen
 hente flere MB fuldbillede over mobildata. Sletning skal tage begge
 filer. `FOTO_MAX_DEKLARATION`/`FOTO_MAX_FRONT` kan skrue på det.
 
-`imported_product.ean` er koblingen, der giver en række værdi: uden EAN kan
-den aldrig bære en dom. Den sættes kun af et menneske
-(`POST /api/liste/{id}/stregkode`, kræver login) og er **ikke** en dom — en
-koblet række bliver ikke grøn af det. Er koblingen sat, slår den alle
-navnegæt; er den ikke, arves kun kategori, og kun ved to fælles ord.
+**Prøven, der aflivede både arket og butikskolonnen, gælder stadig:**
+*kan en scannet vare også have det?* Butikskolonnen røg i 0.18.0, fordi en
+scannet vare ingen butik har — et butiksfilter ville skjule mere og mere, jo
+flere varer familien scanner. Hele arket røg i 0.25.0 af samme grund: dets
+hyldenavne kunne kun nå de rækker, arket selv havde med.
 
-Arkets butikskolonne er FJERNET (0.18.0). Butik er ikke data, appen får om
-fremtidige varer — en scannet vare har ingen — så et butiksfilter ville
-skjule mere og mere, jo flere varer familien scanner. Samme prøve gælder
-alt andet, arket måtte kunne: kan en scannet vare også have det?
+Læg mærke til, at kategori-dimensionen dermed er væk, og at `product` ingen
+kategorikolonne har. Skal gruppering tilbage, skal den komme fra noget, en
+scannet vare også kan have — se `docs/plan-kategorisering.md`.
 
 ## Kør og test
 
@@ -201,7 +202,7 @@ pip install -r requirements.txt
 TILLAD_SQLITE=1 DATA_DIR=./data-runtime RULES_PATH=./data/allergens.yaml \
   COOKIE_SECURE=0 uvicorn app.main:app --reload
 
-pytest tests/ -q          # 256 tests, 5 springes over uden Tesseract-dansk
+pytest tests/ -q          # 400 tests, 5 springes over uden Tesseract-dansk
 python -m app.cli adduser dig@example.dk "Navn"
 ```
 
@@ -252,11 +253,11 @@ Rutningskommandoer i `.claude/commands/`: `/tjek`, `/regel`, `/ux`, `/data`,
 
 To vagter i `scripts/`:
 
-- `vagt-groen.sh` er registreret i frontmatter på `allergen-domaene` og
-  `implementer` — de to agenter, der kan ændre en dom. **I hovedsessionen
-  kører den kun, hvis du selv registrerer den** i `.claude/settings.json`
-  (se `settings.json.forslag`); den fil er maskinlokal og ligger ikke i
-  repoet. Vagten fanger to ting, der peger den farlige vej: en ny grøn dom uden for bekræftelsesruten, og et regelsæt der
+- `vagt-groen.sh` er registreret tre steder: i frontmatter på
+  `allergen-domaene` og `implementer` — de to agenter, der kan ændre en dom —
+  og som `PostToolUse`-hook i `.claude/settings.json`, som ER sporet i repoet.
+  Den kører altså også i hovedsessionen, uden at nogen skal huske det.
+  Vagten fanger to ting, der peger den farlige vej: en ny grøn dom uden for bekræftelsesruten, og et regelsæt der
   er blevet blødere (færre `contains`, flere `exclude`). Den beviser ingen
   fejl — den beder om en begrundelse.
 - `vagt-udgivelse.sh` (PreToolUse på Bash, kun i `udgivelse`-agenten)
