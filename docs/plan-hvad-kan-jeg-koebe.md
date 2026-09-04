@@ -33,9 +33,24 @@ katalogsøgning ikke skal bygges, næste gang nogen får ideen.
 
 Understøttende kendsgerninger for beslutningen:
 
-- **0 af 583 arkrækker har en EAN.** Domme hænger på (EAN, allergen), så ingen
-  af dem kunne nogensinde blive grøn. Produktejerens modforslag — at knytte
-  stregkoder ved køkkenbordet — havde nul optag på en måned.
+- **0 arkrækker har en EAN — bekræftet mod PRODUKTIONEN 4. september 2026.**
+  Domme hænger på (EAN, allergen), så ingen af dem kunne nogensinde blive grøn.
+  Produktejerens modforslag — at knytte stregkoder ved køkkenbordet — havde nul
+  optag på en måned.
+
+  Kontrollen var nødvendig, fordi det oprindelige tal blev målt på
+  udviklingskopien i `data-runtime` (dateret 11. august), mens produktionen
+  kører Postgres. `ean` er netop det ene felt, der IKKE kan genskabes fra
+  regnearket: det blev sat i hånden gennem koblingsruten og fandtes kun i
+  appen. Var tallet ikke 0, ville `DROP TABLE` have kasseret menneskearbejde
+  uden vej tilbage.
+
+  To målinger, begge 0: 563 af 580 uscannede rækker set gennem den offentlige
+  `/api/soeg` (skåret i skiver, fordi ruten topper ved 200 træf), og derefter
+  `SELECT count(*) FROM imported_product WHERE ean IS NOT NULL` kørt af
+  vedligeholderen mod produktions-Postgres. **Lærdommen til næste gang: mål
+  mod den database, handlingen rammer — ikke mod den, der ligger på
+  udviklingsmaskinen.**
 - Kategori bestod ikke prøven »kan en scannet vare også have det?«, og hylderne
   kom kun fra arket.
 - Data går ikke tabt for familien: importen henter fra en eksport-URL af deres
