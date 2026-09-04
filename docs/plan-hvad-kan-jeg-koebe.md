@@ -12,6 +12,40 @@ Vedligeholderen, 3. september 2026:
 > skal se, hvad hun skal købe, er der ingen hjælp. »Jeg vil købe smør —
 > hvilket smør må jeg købe?«
 
+## OMSTØDT 4. september 2026 — arkrækkerne fjernes helt
+
+Vedligeholderens beslutning, med hans egne ord: »vi skal bare have fjernet de
+arkrækker, det giver flere problemer end hvad godt er«. Valgt omfang: **hele
+mekanismen** — tabellen `imported_product`, import-kommandoen, sammenlægningen
+i `/api/soeg`, hylderne og koblingsruten.
+
+**Det gør trin 1 dødt.** `erstatning_for` og hylden »Erstatningsprodukter«
+forsvinder sammen med rækkerne. Svaret på »hvad køber jeg i stedet for smør«
+findes derefter ikke i appen.
+
+**Det gør også trin 2 dødt.** »Ikke scannet«-ordlyden var en ordlyd om
+arkrækker; der er ingen tilbage at omdøbe.
+
+Hvad der står tilbage af dokumentet: begrundelsen for, hvorfor OPDAGELSE ikke
+bygges (målingerne i afsnittet »Hvorfor opdagelse dør på tallene«). Den gælder
+uændret og er den vigtigste del at bevare — den er grunden til, at en
+katalogsøgning ikke skal bygges, næste gang nogen får ideen.
+
+Understøttende kendsgerninger for beslutningen:
+
+- **0 af 583 arkrækker har en EAN.** Domme hænger på (EAN, allergen), så ingen
+  af dem kunne nogensinde blive grøn. Produktejerens modforslag — at knytte
+  stregkoder ved køkkenbordet — havde nul optag på en måned.
+- Kategori bestod ikke prøven »kan en scannet vare også have det?«, og hylderne
+  kom kun fra arket.
+- Data går ikke tabt for familien: importen henter fra en eksport-URL af deres
+  eget regneark (`cli.py:75-103`). Arket findes stadig hos dem; det er appens
+  kopi, der forsvinder.
+
+Trin 0 (0.24.0) er udgivet og efterprøvet live og berøres ikke.
+
+---
+
 ## Beslutningen: genkaldelse ja, opdagelse nej
 
 Produktejeren pressede omfanget og skar sagen i to. Skellet er hele planen:
