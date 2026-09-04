@@ -7,13 +7,13 @@ Nyeste øverst. Vises i appen via »Nyheder« i bunden.
 
 **Den gamle godkendt-liste fra jeres regneark er væk fra appen**
 
-Søgningen viste før to lister som én: jeres 583 varer fra regnearket,
-ved siden af de varer, I selv har scannet, samlet i hylder som Brød og
-Pålæg. Regnearkets varer har ingen stregkode, og en dom hænger altid på
-(stregkode, allergen) — så ingen af de 583 rækker kunne nogensinde blive
-grønne. De stod for evigt som »Ikke scannet«, og noten »bekræftet uden
-mælk, æg, tomat og banan« på dem var arkets egen, gamle påstand — ikke
-noget, appen selv havde tjekket.
+Søgningen viste før to lister som én: jeres 583 varer fra regnearket, ved
+siden af de varer, I selv har scannet — i skrivende stund omkring 20,
+samlet i hylder som Brød og Pålæg. Regnearkets varer har ingen
+stregkode, og en dom hænger altid på (stregkode, allergen) — så ingen af
+de 583 rækker kunne nogensinde blive grønne. De stod for evigt som »Ikke
+scannet«, og noten »bekræftet uden mælk, æg, tomat og banan« på dem var
+arkets egen, gamle påstand — ikke noget, appen selv havde tjekket.
 
 Hylderne forsvinder med det samme: de kom fra regnearket, og en scannet
 vare fik kun sin egen hylde ved at ligne en arkrække, så grupperingen
@@ -22,12 +22,29 @@ butiksfilteret, der forsvandt i 0.18.0. Knappen, der kunne knytte en
 stregkode til en arkrække, er væk af samme årsag.
 
 Søgningen er nu kun de varer, I selv har scannet — en enkelt, flad
-liste, sorteret med det sikre først og det forbudte sidst. Fritekst,
-statusfiltrene og »Fri for«-knapperne virker som før.
+liste, sorteret med det sikre først og det forbudte sidst. Fritekst og
+»Fri for«-knapperne virker som før; af statusknapperne er kun »Ikke
+scannet« væk, den handlede om arkrækkerne, og der er ingen tilbage at
+vise den for. Filtrér-fanen fortæller nu selv om ændringen, og søger I
+på en vare, der ikke findes, siger listen det direkte i stedet for at
+foreslå jer at fjerne et filter, I ikke har sat.
 
-**Jeres regneark er urørt.** Det er kun appens egen kopi af det, der er
-væk — arket selv ligger stadig, hvor det altid har ligget, og I kan slå
-op i det direkte, ligesom før appen fandtes.
+**Det, I mærker ved scanning i morgen.** Lignede en scannet vare før en
+række fra regnearket, viste skærmen en linje som »Ligner Havregryn Øko
+(Urtekram) fra jeres liste — bekræftet uden æg, mælk, tomat og banan,
+men tjek stadig emballagen.« Den linje er væk. Den hvilede kun på, at to
+ord i navnet var ens — ikke på nogen sammenligning af opskriften — og
+kunne berolige jer om den forkerte vare. Er I i tvivl om en vare
+fremover, er svaret det samme som for enhver anden ukendt vare:
+fotografér deklarationen, og bekræft den selv.
+
+**Jeres regneark er urørt** — men vejen tilbage til appen er lukket. Det
+er kun appens egen kopi af arket, der er væk; arket selv ligger stadig,
+hvor det altid har ligget, og I kan slå op i det direkte, ligesom før
+appen fandtes. Fortryder I, er der ingen kommando, der henter det ind
+igen — den er fjernet fra appen. At få en vare fra arket tilbage skal nu
+gå gennem det samme, som enhver anden vare: scan den, og bekræft den mod
+emballagen.
 
 ## 0.24.0 — 3. september 2026
 

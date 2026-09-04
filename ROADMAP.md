@@ -34,24 +34,20 @@ der skal fikses.
 
 ---
 
-## Fase 1 — Få jeres eksisterende viden ind ✓ (import som opslagsliste)
+## Fase 1 — Få jeres eksisterende viden ind — OMSTØDT (0.25.0)
 
-Gjort — men anderledes end planlagt, for arket viste sig ikke at have
-EAN-koder, og domme hænger på (EAN, allergen). I stedet:
+Var gjort, men er nu fjernet helt igen: se
+[`docs/plan-hvad-kan-jeg-koebe.md`](docs/plan-hvad-kan-jeg-koebe.md),
+afsnittet »OMSTØDT 4. september 2026«. `python -m app.cli import` findes
+ikke længere, `imported_product`-tabellen droppes eksplicit ved opstart
+(`_drop_imported_product_tabellen()` i `app/db.py`), og `openpyxl` er ude
+af `requirements.txt`. Grunden: 0 af arkets 583 rækker havde en EAN, og
+domme hænger på (EAN, allergen), så ingen af dem kunne nogensinde blive
+grøn — de stod som »Ikke scannet« for evigt.
 
-- [x] `python -m app.cli import [fil-eller-url]` læser arket (583 varer,
-      alle kategoriark) ind i en separat opslagsliste uden domme. Med
-      `LISTE_URL` i `.env` henter den selv nyeste udgave fra Google
-      Sheets. Alle varer regnes som bekræftet uden æg, mælk, tomat og
-      banan — det var kriteriet for at komme på listen; arkets gamle
-      Valideret-kolonne ignoreres
-- [x] Listen er søgbar under Filtrér-fanen, og ved scanning vises et hint,
-      når varen ligner noget fra listen — "bekræft stadig mod emballagen"
-- [x] Hver vare graduerer til en rigtig dom, første gang I scanner og
-      bekræfter den. Genimport udskifter listen (idempotent).
-
-Regnearket committes ALDRIG til git — det er jeres data. Læg det i
-`/mnt/user/appdata/allergiscan/data/` og kør importen derfra.
+Regnearket selv er urørt og ligger, hvor det altid har ligget. Vejen
+tilbage, hvis familien fortryder, går gennem en kodeændring, ikke en
+kommando — der er ingen genimport at slå til.
 
 ---
 

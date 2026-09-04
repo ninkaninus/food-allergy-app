@@ -528,6 +528,47 @@ def test_scan_tabellen_er_fjernet_helt(opsat):
     assert "scan" not in sql_inspect(engine).get_table_names()
 
 
+def test_imported_product_tabellen_er_fjernet_helt(opsat):
+    """
+    Den gamle godkendt-liste fra familiens regneark (583 varer, 0 med en
+    EAN) er FJERNET i 0.25.0, ikke migreret — se
+    _drop_imported_product_tabellen() i app/db.py. Domme hænger på (EAN,
+    allergen), så ingen af rækkerne kunne nogensinde blive grøn; de stod
+    som "Ikke scannet" for evigt, og familiens eget regneark er urørt —
+    det er kun appens kopi, der er væk.
+
+    Modsat søster-testen for `scan` opretter denne testen selv tabellen
+    igen først: `_drop_scan_tabellen()`/`_drop_imported_product_tabellen()`
+    kører ved HVER opstart, og en test, der kun ser, at tabellen mangler,
+    beviser ikke, at DROP-linjen virker — kun at ingen (endnu) har lagt
+    den derind igen. Uden det her ville en fremtidig ændring af init_db(),
+    der stille fjernede kaldet, ikke blive fanget.
+    """
+    from sqlalchemy import inspect as sql_inspect
+    from sqlalchemy import text
+
+    from app.db import engine
+
+    with engine.begin() as con:
+        con.execute(text("CREATE TABLE IF NOT EXISTS imported_product (id INTEGER PRIMARY KEY)"))
+    assert "imported_product" in sql_inspect(engine).get_table_names(), (
+        "kunne ikke sætte testen op — tabellen blev ikke oprettet"
+    )
+
+    init_db()
+
+    assert "imported_product" not in sql_inspect(engine).get_table_names(), (
+        "imported_product findes stadig efter init_db() — "
+        "se _drop_imported_product_tabellen() i app/db.py"
+    )
+
+    # Søgningen — den offentlige rute, der FØR slog arkrækkerne sammen med
+    # de scannede varer — skal virke normalt uden tabellen at slå op i.
+    assert _anonym().get("/api/soeg").status_code == 200
+    assert _indlogget().get("/api/soeg").status_code == 200
+    assert "imported_product" not in sql_inspect(engine).get_table_names()
+
+
 def test_profile_id_i_url_bliver_ignoreret(opsat):
     """
     Var i drift: profile_id kom fra query-strengen og blev slået op uden

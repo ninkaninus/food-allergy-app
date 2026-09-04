@@ -160,14 +160,6 @@ mark.trace_risk{color:var(--caution);font-weight:700;text-decoration:underline;
 details.sec>summary{font-size:11px;letter-spacing:.16em;text-transform:uppercase;
   color:var(--muted);font-weight:700;cursor:pointer}
 .count{font-size:12.5px;color:var(--muted);margin:14px 0 0}
-.hits .gruppe{padding:16px 0 6px;border-bottom:2px solid var(--ink);align-items:baseline}
-.hits .gruppe:first-child{padding-top:4px}
-.hits .gruppe-h{font-family:Archivo,sans-serif;font-variation-settings:"wdth" 112,"wght" 750;
-  font-size:15px;letter-spacing:.01em;text-transform:uppercase}
-.hits .mere{border-bottom:0;padding-top:8px}
-.hits .badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:5px}
-.hits .badge{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;
-  padding:2px 6px;border:1px solid var(--rule);color:var(--muted)}
 
 .fotos{display:flex;gap:10px;padding:12px var(--pad) 0;flex-wrap:wrap}
 .foto{border:1.5px solid var(--rule);background:var(--surface);padding:0;cursor:zoom-in;
@@ -356,7 +348,10 @@ footer a{color:var(--muted)}
   <section id="view-filter" hidden>
     <div class="sec">
       <h3>Søg i jeres varer</h3>
-      <input id="sQ" placeholder="brød, yoghurt, pålæg …" aria-label="Søg efter vare eller mærke">
+      <p class="hint">Listen er nu kun de varer, I selv har scannet med telefonen — de gamle
+        rækker fra jeres regneark er væk herfra, fordi ingen af dem kunne blive grønne uden en
+        stregkode. Regnearket selv er urørt og ligger, hvor det altid har ligget.</p>
+      <input id="sQ" placeholder="rugbrød, skyr, Kohberg …" aria-label="Søg efter vare eller mærke">
 
       <ul class="chips" id="sStatus" style="margin:12px 0 0" aria-label="Vis kun"></ul>
 
@@ -1823,9 +1818,19 @@ async function soeg(){
         <span class="sub"><br>${esc(v.maerke || '—')} · ${esc(forklaring(v))}${v.stale ? ' · <b>opskrift ændret</b>' : ''}</span></span>
       <button class="link" data-ean="${esc(v.ean)}">åbn</button></li>`;
 
+  // Tomt kan skyldes to helt forskellige ting, og de kræver hver sin
+  // sætning: en dagplejer, der taster et navn, hun VED står på listen,
+  // må ikke få at vide "prøv at fjerne et filter" — der er ikke noget
+  // filter. Fritekst uden træf betyder, at navnet ikke findes; et filter
+  // (status eller "Fri for") kan derimod rammes ned.
+  const sTom = soegState.q
+    ? `Ingen af jeres varer hedder »${esc(soegState.q)}«. Scan den, så kommer den på listen.`
+    : (soegState.status !== 'alle' || soegState.fri.size)
+      ? 'Ingen træf. Prøv at fjerne et filter.'
+      : 'Listen fyldes, når I scanner varer.';
   $('#sHits').innerHTML = d.varer.length
     ? d.varer.map(vare).join('')
-    : `<li class="none">Ingen træf. ${soegState.q || soegState.fri.size ? 'Prøv at fjerne et filter.' : 'Listen fyldes, når I scanner varer.'}</li>`;
+    : `<li class="none">${sTom}</li>`;
 
   $('#sHits').querySelectorAll('button[data-ean]').forEach(b => b.onclick = () => {
     document.querySelector('nav.tabs button[data-view="scan"]').click();

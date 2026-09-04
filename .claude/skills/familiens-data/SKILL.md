@@ -7,7 +7,7 @@ description: Hvilke persondata AllergiScan gemmer, hvorfor, hvor længe, og hvem
 
 Efterprøvet mod `app/models.py`, `app/auth.py`, `app/main.py`, `app/off.py`,
 `Dockerfile`, `Dockerfile.ocr`, `docker-compose.yml` og
-`app/static/index.html` 23. august 2026 (efter 0.20.0), med rigtige kald mod en
+`app/static/index.html` 4. september 2026 (efter 0.25.0), med rigtige kald mod en
 kørende uvicorn og en OFF-stub. **UKENDT** betyder, at ingen har taget
 stilling — det er en to-do-liste, ikke felter, der skal fyldes med gæt.
 
@@ -20,8 +20,9 @@ kategori efter GDPR art. 9.
 Siden 0.20.0 er der hverken et navn på profilen eller en fødevaredagbog
 (`Profile.name` holdes tom, `scan` er droppet — se »Afgjort«). Det gør
 oplysningen mindre, ikke uskadelig: husstanden er stadig identificerbar
-af domænet, og `imported_product.valideret_mod` udleder de fire
-allergener af gentagelsen på ~583 offentlige rækker.
+af domænet. `imported_product.valideret_mod` — en konstant (»æg, mælk,
+tomat og banan«) på ~583 offentlige rækker, altså barnets allergensæt
+udledt af gentagelsen — er selv væk i 0.25.0, se »Afgjort«.
 
 Det er ikke en grund til at gøre appen tungere. Det er grunden til, at
 "det ligger jo bare på vores egen server" ikke er et argument, der holder,
@@ -40,7 +41,7 @@ hvis noget først forlader den.
 | `SessionToken.token_hash` | Kun sha256 af cookien gemmes — tabellen er værdiløs, hvis den lækker | UKENDT. `expires_at` (default 30 dage, `SESSION_DAYS`) er GYLDIGHED, ikke opbevaring: rækken slettes aldrig. Kun `revoke_session()` ved eksplicit logout fjerner én, og der er ingen oprydning af udløbne | Ingen |
 | `SessionToken.user_agent` | Enhedsfingeraftryk; kunne bruges til "log andre enheder ud" | UKENDT — samme som token_hash ovenfor | Den, der har databasen |
 | `Verdict.decided_by`, `decided_at`, `note` | Hvem bekræftede hvad hvornår — sporbarhed på en sikkerhedsafgørelse | Indefinit med vilje: dommen ER arbejdet | Alle, der læser en vare |
-| `ImportedProduct` (navn, producent, kategori, **valideret_mod**, ean) | Familiens gamle regneark, 583 varer | Erstattes ved genimport | **Offentligt** via `/api/soeg` og `/api/scan` — det ER opslagsværket. Bemærk: `valideret_mod` er en konstant (»æg, mælk, tomat og banan«) på ~583 rækker, altså barnets allergensæt udledt af gentagelsen. Det er uadskilleligt fra at publicere bekræftelserne. `link` og `erstatning_for` importeres, men udstilles ingen steder |
+| ~~`ImportedProduct`~~ | Familiens gamle regneark, 583 varer — TABELLEN ER FJERNET i 0.25.0 (`_drop_imported_product_tabellen()`), ikke kun rækkerne | — | Var før **offentligt** via `/api/soeg` og `/api/scan`, inklusive `valideret_mod`, en konstant på ~583 rækker der udledte barnets fire allergener af gentagelsen. Den lækage er væk sammen med tabellen — se »Afgjort« |
 | `ProductPhoto` + filerne under `DATA_DIR/billeder` | Jeres egne fotos af forside og deklaration | FLERE pr. (vare, slags) siden 0.21.0 — intet erstattes automatisk. Lever, til et menneske sletter det | **Offentligt — bevidst.** Fotoet af deklarationen ER dokumentationen bag en bekræftelse. Prisen: stregkoder kan opremses, og billederne er taget i familiens køkken og i butikker. Står som `test_fotoruten_er_bevidst_offentlig`; lukkes med én dependency |
 | `ProductPhoto.taget_af` | Hvem tog billedet — kan fra 0.20.0 være en inviteret bidragyder | Lever med billedet; `ondelete="SET NULL"` nulstiller kun `taget_af_user_id`, **navnestrengen bliver stående** | **Kun curator/admin** (`_foto_familie()`, 0.21.0). Ikke til anonyme, og ikke til en bidragyder — heller ikke hendes eget navn. UBESLUTTET: selve billedfilerne er stadig offentlige |
 | `ProductPhoto.taget_at` | Hvornår billedet blev taget | Lever med billedet | **Offentligt** — følger med fotosvaret til anonyme. Det er en tidslinje over, hvornår husstanden har fotograferet hvad |
@@ -49,9 +50,9 @@ hvis noget først forlader den.
 | `Household.token` | Genereres ved første start; ubrugt i dag | Lever med husstanden | Den, der har databasen |
 
 Ikke persondata, men ODbL-afledt og skal holdes adskilt: `product`,
-`ingredient`, `product_ingredient`. Se `NOTICE.md` — `verdict` og
-`imported_product` er familiens eget arbejde og ligger i egne tabeller,
-netop for at share-alike ikke smitter af.
+`ingredient`, `product_ingredient`. Se `NOTICE.md` — `verdict` er
+familiens eget arbejde og ligger i sin egen tabel, netop for at
+share-alike ikke smitter af.
 
 ## Adgangsmodellen: åbent opslagsværk, lukket familie
 
@@ -76,7 +77,7 @@ end de tre.
 | `GET /api/scan/{ean}` — dommen* | `GET /api/profiles` — allergensættet, uden navn | `GET /api/queue` | `GET /api/auth/users` |
 | `GET /api/soeg`, `GET /api/products` | `POST /api/products/{ean}/foto` | `GET /api/diagnostik` | `POST /api/auth/users` |
 | `GET .../foto/{slags}`, `GET .../foto/{slags}/{foto_id}`, `GET .../fotos` | `POST /api/ocr`, `DELETE .../foto/{slags}/{foto_id}` (kun sit eget) | `POST .../confirm`, `POST .../navn`, `DELETE` af hvem som helsts foto | |
-| `/api/allergens`, `/api/version`, `/api/changelog`, `/api/attribution` | `GET /api/korpus` (0.23.0) — se note under tabellen | `POST /api/profiles/{id}/allergens`, `POST /api/liste/{id}/stregkode` | |
+| `/api/allergens`, `/api/version`, `/api/changelog`, `/api/attribution` | `GET /api/korpus` (0.23.0) — se note under tabellen | `POST /api/profiles/{id}/allergens` | |
 | `/`, `/static`, `/healthz`, `/api/ingredients/suggest`, `/api/auth/me` | | | |
 
 `/docs`, `/redoc` og `/openapi.json` er slået helt fra (404, efterprøvet).
@@ -227,8 +228,10 @@ Meld den til vedligeholderen, også når den ser rigtig ud.
   Korrekt implementeret; lad være med at "forenkle" det til at sende hele
   hashen.
 - **Cloudflare**: al trafik går gennem Tunnel. Der er INGEN Access foran — den ser altså ingen identiteter, og appen kan ikke regne med den.
-- **Google Sheets** (`LISTE_URL`): importen henter familiens eget ark. Arket
-  committes ALDRIG til git.
+- **Google Sheets** — VÆK i 0.25.0. `importen` og dermed appens brug af
+  `LISTE_URL` er fjernet; se »Afgjort«. `LISTE_URL` findes stadig som en
+  ubrugt indstilling i `docker-compose.yml`/`.env.example` (infrastruktur,
+  ikke rettet her), men ingen app-kode læser den længere.
 - **Produktbilleder fra OFF, hentet af browseren**: `index.html` rendrer
   `p.image_url` direkte, så familiens browser henter billedet fra Open Food
   Facts' egne servere. OFF får dermed BÅDE serverens opslag og et browser-hit
@@ -251,8 +254,6 @@ Meld den til vedligeholderen, også når den ser rigtig ud.
   - **De gamle logfiler er der endnu**, og det er et bevidst valg — se
     »Afgjort« nedenfor. `docker-compose.yml` har ingen `logging:`-sektion,
     så json-file-driveren kører uden `max-size`/`max-file`.
-  - `app/cli.py`s import printer nu `MISTET: <ean> hørte til «<navn>»` til
-    stdout. Uproblematisk kørt i hånden; ikke fra cron i containeren.
 
 ## Efterprøvet i orden — så det ikke tages op igen
 
@@ -342,6 +343,18 @@ Google Fonts — det er et udgående kald fra brugerens browser).
   betød noget — oprydningen er et driftsstykke uden modtager.
   Vurderingen ville ændre sig, hvis appen nogensinde deles med en anden
   husstand, eller hvis logopsamlingen sendes ud af maskinen.
+
+- **`imported_product`-tabellen er slettet, ikke kun rækkerne.** Afgjort
+  4. september 2026 (0.25.0), af produktbeslutning (ingen af arkets 583
+  rækker havde en EAN, så ingen af dem kunne nogensinde blive grøn) — men
+  med en privatlivsgevinst, der ikke stod noget sted, før denne skill
+  blev rettet: `/api/soeg` er en offentlig, ubeskyttet rute, og den
+  returnerede før `valideret_mod` — en konstant på ~580 rækker, altså
+  barnets fire allergener udledt af gentagelsen — til enhver, uden login.
+  Det felt findes ikke længere, og hverken tabellen eller koblingsruten
+  (`POST /api/liste/{id}/stregkode`) kan bringes tilbage uden en
+  kodeændring. Foreslå den ikke genindført uden en EAN-kilde, der løser
+  det oprindelige problem (0 af 583 havde en).
 
 ## Åbne spørgsmål, ingen har afgjort
 

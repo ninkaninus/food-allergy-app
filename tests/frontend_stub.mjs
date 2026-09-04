@@ -179,8 +179,8 @@ globalThis.fetch = async (url, opt) => {
     fotos: {},
   });
   if(u.startsWith('/api/soeg')) return svar({
-    antal: 0, vist: 0, grupper: [], varer: [],
-    facetter: {status: {alle: 0}, kategori: []},
+    antal: 0, vist: 0, varer: [],
+    facetter: {status: {alle: 0}},
   });
   return svar({});
 };
