@@ -119,14 +119,68 @@ Mejeri, Diverse.
 »Erstatningsprodukter« — den beskriver husstandens situation frem for maden.
 Den skal ikke med tilbage. Listen ender i et PUBLIC repo og i grænsefladen.
 
+## De to slags kilder — arkitekturen, som fundene gør den
+
+Vedligeholderens kæde er OFF → Salling → familiens eget navn. Alle tre er
+**navnekilder**. Kategorien kommer ét andet sted fra. Bland dem ikke sammen:
+
+| | Kilder | Rækkefølge |
+|---|---|---|
+| **Navn** (og mærke) | OFF `product_name_da`/`product_name` → Salling `instore.name` + `description` → `navn_manuelt` | Gratis og offentligt først, familiens eget til sidst |
+| **Kategori** | OFF `categories_tags` → modellen, fodret med det bedste navn, kæden fandt | Gratis først, betalt kun for resten |
+
+Det betyder, at Salling ikke fjerner behovet for modellen. Den gør modellens
+input bedre for netop de danske varer, OFF ikke kender — og det er dem, hullet
+handler om.
+
+## Salling, som den faktisk er
+
+Efterprøvet mod `HA-setup/grocy-to-keep-integration/grocy_lists.py`, hvis
+dokumentation er verificeret mod det levende API 13. august 2026.
+
+**Endepunkt:** `GET https://api.sallinggroup.com/v2/products/{ean}` med
+`Authorization: Bearer <token>` og `storeId` som parameter. Opslaget er altså
+**butiksbundet** — det kræver et butiks-ID, ikke kun en stregkode.
+
+**Svarform:**
+
+```json
+{"instore": {"ean": "5710405090951", "name": "KOKOSMÆLK",
+             "description": "ASIA KITCHEN", "price": 9.5,
+             "contents": 400, "contentsUnit": "ml",
+             "unit": "l", "unitPrice": 23.75},
+ "webshop": null}
+```
+
+`name` er varens navn med VERSALER, `description` er mærket. **Ingen
+kategori.** `instore` først, `webshop` som fallback.
+
+**Driftsviden, der allerede er betalt for én gang — genbrug den:**
+
+- **404 er normaltilstanden, ikke en fejl.** Den betyder »den butik fører ikke
+  varen«. Behandles den som en fejl, ligner et ærligt ikke-fundet et nedbrud.
+- **429 må ikke genforsøges.** Der er en dagskvote bag; genforsøg brænder den
+  næste kørsel i stedet for at redde denne.
+- **1,5 sekunder mellem kald**, og et loft pr. kørsel (HA-koden bruger 90).
+- **GS1-præfikser for andre kæders private label** (`5705830`, `5705001`)
+  springes over uden at spørge — Salling fører dem aldrig. Gratis frafiltrering.
+- **Negativ caching:** en stregkode, Salling har afvist nok gange, antages ikke
+  at være i sortimentet.
+- **Nøglen læses fra en miljøvariabel**, ikke fra en fil i repoet.
+
+**Vedligeholderens svar på licensspørgsmålet, 4. september 2026:** caching og
+genudstilling er i orden, så længe vi ikke deler mere end de data, vi allerede
+deler. Det er dermed en grænse, der skal håndhæves: Salling må ikke udvide,
+hvad appen offentliggør.
+
 ## Uafklaret — skal besvares, før de dele bygges
 
-- **Salling: kan API'et overhovedet det, vi har brug for?** Bekræftet: gratis,
-  kræver egen bruger og accept af vilkår, loft på 1.000 kald/dag, søgning på en
-  query-streng. IKKE bekræftet: om det kan slå op på EAN, og om det returnerer
-  en kategori. Dokumentationen ligger bag login. Kan den kun søge på navn uden
-  at give en kategori, er den ikke en grupperingskilde — så er den kun en
-  ekstra navnekilde.
+- **Salling: AFKLARET 4. september 2026.** Der findes fungerende
+  forarbejde i familiens eget HA-repo
+  (`HA-setup/grocy-to-keep-integration/grocy_lists.py`), efterprøvet mod det
+  levende API 13. august 2026. Se afsnittet »Salling, som den faktisk er«
+  nedenfor. Kort: den kan slå op på EAN, men den returnerer **ingen
+  kategori**. Den er en navnekilde, ikke en grupperingskilde.
 - **Salling er en dansk butikskæde.** Slår vi EAN'er op hos dem, fortæller vi
   en detailkæde, hvilke varer denne husstand kigger på. OFF er anonym
   infrastruktur; Salling er en konkurrent til den butik, familien står i.
